@@ -83,8 +83,8 @@ func copyFromUpstream(downstream net.PacketConn, conn *connection) {
 	}
 }
 
-func getSocketFromMap(downstream net.PacketConn, opts *utils.Options, downstreamAddr, saddr netip.AddrPort, logger *slog.Logger,
-	connMap map[netip.AddrPort]*connection, socketClosures chan<- netip.AddrPort) (*connection, error) {
+func getSocketFromMap(downstream net.PacketConn, opts *utils.Options, downstreamAddr, saddr, daddr netip.AddrPort,
+	logger *slog.Logger, connMap map[netip.AddrPort]*connection, socketClosures chan<- netip.AddrPort) (*connection, error) {
 	if conn := connMap[saddr]; conn != nil {
 		atomic.AddInt64(conn.lastActivity, 1)
 		return conn, nil
@@ -92,7 +92,9 @@ func getSocketFromMap(downstream net.PacketConn, opts *utils.Options, downstream
 
 	targetAddr := opts.TargetAddr6
 	if saddr.IsValid() {
-		if saddr.Addr().Is4() {
+		if opts.DynamicDestination && daddr.IsValid() {
+			targetAddr = daddr
+		} else if saddr.Addr().Is4() {
 			targetAddr = opts.TargetAddr4
 		}
 	} else {
@@ -162,7 +164,7 @@ func Listen(ctx context.Context, listenConfig *net.ListenConfig, opts *utils.Opt
 			continue
 		}
 
-		saddr, _, restBytes, err := proxyprotocol.ReadRemoteAddr(buffer[:n], utils.UDP)
+		saddr, daddr, restBytes, err := proxyprotocol.ReadRemoteAddr(buffer[:n], utils.UDP)
 		if err != nil {
 			logger.Debug("failed to parse PROXY header", "error", err, slog.String("remoteAddr", remoteAddr.String()))
 			continue
@@ -181,7 +183,7 @@ func Listen(ctx context.Context, listenConfig *net.ListenConfig, opts *utils.Opt
 			}
 		}
 
-		conn, err := getSocketFromMap(ln, opts, remoteAddr, saddr, logger, connectionMap, socketClosures)
+		conn, err := getSocketFromMap(ln, opts, remoteAddr, saddr, daddr, logger, connectionMap, socketClosures)
 		if err != nil {
 			continue
 		}

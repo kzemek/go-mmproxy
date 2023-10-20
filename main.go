@@ -68,9 +68,9 @@ func listen(listenerNum int, errors chan<- error) {
 	}
 
 	if Opts.Protocol == "tcp" {
-		TCPListen(&listenConfig, logger, errors)
+		tcpListen(&listenConfig, logger, errors)
 	} else {
-		UDPListen(&listenConfig, logger, errors)
+		udpListen(&listenConfig, logger, errors)
 	}
 }
 
@@ -130,7 +130,7 @@ func main() {
 	}
 
 	var err error
-	if Opts.ListenAddr, err = ParseHostPort(Opts.ListenAddrStr); err != nil {
+	if Opts.ListenAddr, err = parseHostPort(Opts.ListenAddrStr); err != nil {
 		Opts.Logger.Error("listen address is malformed", "error", err)
 		os.Exit(1)
 	}

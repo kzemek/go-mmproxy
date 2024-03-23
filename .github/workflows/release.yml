@@ -21,3 +21,6 @@ jobs:
           goos: linux
           goarch: ${{ matrix.goarch }}
           goversion: 1.21
+          compress_assets: "OFF"
+          md5sum: "FALSE"
+          sha256sum: "TRUE"

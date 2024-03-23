@@ -1,0 +1,38 @@
+name: Go
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: "1.21"
+
+      - name: Build
+        run: go build -v ./...
+
+      - name: Install go-mmproxy
+        run: sudo cp go-mmproxy /usr/bin/go-mmproxy
+
+      - name: Add net-prefixes.txt
+        run: echo 192.168.0.0/16 | sudo tee /usr/share/net-prefixes.txt
+
+      - name: Install the systemd service
+        run: |
+          sudo cp go-mmproxy.service.example /etc/systemd/system/go-mmproxy.service
+          sudo systemctl daemon-reload
+
+      - name: Start go-mmproxy
+        run: sudo systemctl start go-mmproxy
+
+      - name: Check go-mmproxy status
+        run: systemctl is-active go-mmproxy

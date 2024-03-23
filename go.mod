@@ -1,3 +1,3 @@
-module github.com/path-network/go-mmproxy
+module github.com/kzemek/go-mmproxy
 
 go 1.21

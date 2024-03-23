@@ -29,7 +29,18 @@ jobs:
           sudo systemctl daemon-reload
 
       - name: Start go-mmproxy
-        run: sudo systemctl start go-mmproxy || sudo systemctl status go-mmproxy.service
+        run: sudo systemctl start go-mmproxy || sudo journalctl -xeu go-mmproxy.service
+
+      - name: Check go-mmproxy status
+        run: systemctl is-active go-mmproxy
+
+      - name: Replace listen address of go-mmproxy with a hostname
+        run: |
+          sudo sed -i 's/-l 0.0.0.0:1234/-l %H:1234/' /etc/systemd/system/go-mmproxy.service
+          sudo systemctl daemon-reload
+
+      - name: Restart go-mmproxy
+        run: sudo systemctl restart go-mmproxy || sudo journalctl -xeu go-mmproxy.service
 
       - name: Check go-mmproxy status
         run: systemctl is-active go-mmproxy

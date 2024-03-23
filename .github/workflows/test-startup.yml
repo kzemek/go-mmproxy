@@ -29,7 +29,7 @@ jobs:
           sudo systemctl daemon-reload
 
       - name: Start go-mmproxy
-        run: sudo systemctl start go-mmproxy
+        run: sudo systemctl start go-mmproxy || sudo systemctl status go-mmproxy.service
 
       - name: Check go-mmproxy status
         run: systemctl is-active go-mmproxy

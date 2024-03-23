@@ -21,13 +21,10 @@ jobs:
         run: go build -v ./...
 
       - name: Install go-mmproxy
-        run: sudo cp go-mmproxy /usr/bin/go-mmproxy
-
-      - name: Add net-prefixes.txt
-        run: echo 192.168.0.0/16 | sudo tee /usr/share/net-prefixes.txt
-
-      - name: Install the systemd service
         run: |
+          sudo cp go-mmproxy /usr/bin/go-mmproxy
+          sudo mkdir /etc/go-mmproxy
+          echo 192.168.0.0/16 | sudo tee /etc/go-mmproxy/net-prefixes.txt
           sudo cp go-mmproxy.service.example /etc/systemd/system/go-mmproxy.service
           sudo systemctl daemon-reload
 

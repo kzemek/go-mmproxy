@@ -19,7 +19,7 @@ const (
 	UDP
 )
 
-func CheckOriginAllowed(remoteIP net.IP) bool {
+func checkOriginAllowed(remoteIP net.IP) bool {
 	if len(Opts.AllowedSubnets) == 0 {
 		return true
 	}
@@ -32,7 +32,7 @@ func CheckOriginAllowed(remoteIP net.IP) bool {
 	return false
 }
 
-func ParseHostPort(hostport string) (netip.AddrPort, error) {
+func parseHostPort(hostport string) (netip.AddrPort, error) {
 	host, portStr, err := net.SplitHostPort(hostport)
 	if err != nil {
 		return netip.AddrPort{}, fmt.Errorf("failed to parse host and port: %w", err)
@@ -55,7 +55,7 @@ func ParseHostPort(hostport string) (netip.AddrPort, error) {
 	return netip.AddrPortFrom(ip, uint16(port)), nil
 }
 
-func DialUpstreamControl(sport int) func(string, string, syscall.RawConn) error {
+func dialUpstreamControl(sport int) func(string, string, syscall.RawConn) error {
 	return func(network, address string, c syscall.RawConn) error {
 		var syscallErr error
 		err := c.Control(func(fd uintptr) {

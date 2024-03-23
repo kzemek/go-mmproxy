@@ -7,6 +7,8 @@ package main
 import (
 	"fmt"
 	"net"
+	"net/netip"
+	"strconv"
 	"syscall"
 )
 
@@ -28,6 +30,29 @@ func CheckOriginAllowed(remoteIP net.IP) bool {
 		}
 	}
 	return false
+}
+
+func ParseHostPort(hostport string) (netip.AddrPort, error) {
+	host, portStr, err := net.SplitHostPort(hostport)
+	if err != nil {
+		return netip.AddrPort{}, fmt.Errorf("failed to parse host and port: %w", err)
+	}
+
+	ips, err := net.LookupIP(host)
+	if err != nil {
+		return netip.AddrPort{}, fmt.Errorf("failed to lookup IP addresses: %w", err)
+	}
+	if len(ips) == 0 {
+		return netip.AddrPort{}, fmt.Errorf("no IP addresses found")
+	}
+
+	port, err := strconv.ParseUint(portStr, 10, 16)
+	if err != nil {
+		return netip.AddrPort{}, fmt.Errorf("failed to parse port: %w", err)
+	}
+
+	ip, _ := netip.AddrFromSlice(ips[0])
+	return netip.AddrPortFrom(ip, uint16(port)), nil
 }
 
 func DialUpstreamControl(sport int) func(string, string, syscall.RawConn) error {

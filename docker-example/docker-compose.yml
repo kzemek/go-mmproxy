@@ -1,0 +1,35 @@
+services:
+  echo:
+    build:
+      context: .
+      dockerfile: Dockerfile.echo
+    command: ip route replace default via 10.5.5.3 && ncat -kvnl -e /bin/cat 0.0.0.0 9000
+    cap_add: [ NET_ADMIN ]
+    networks:
+      backend:
+        ipv4_address: 10.5.5.2
+
+  go-mmproxy:
+    build:
+      context: ../
+      dockerfile: docker-example/Dockerfile
+    command: ./go-mmproxy -l 0.0.0.0:1234 -4 10.5.5.2:9000 -p tcp -v 2 -mark 123
+    privileged: true
+    networks:
+      backend:
+        ipv4_address: 10.5.5.3
+      default:
+
+
+  haproxy:
+    image: haproxy:2.9
+    ports: [ 8000:8000 ]
+    volumes:
+      - ./haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg
+
+networks:
+  backend:
+    ipam:
+      config:
+        - subnet: 10.5.5.0/24
+          gateway: 10.5.5.1

@@ -1,0 +1,2 @@
+FROM ubuntu
+RUN apt-get update && apt-get install -y ncat iproute2 tcpdump inetutils-ping iptables && apt-get clean

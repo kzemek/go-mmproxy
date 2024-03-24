@@ -83,6 +83,10 @@ Example invocation:
 sudo ./go-mmproxy -l 0.0.0.0:25577 -4 127.0.0.1:25578 -6 [::1]:25578 --allowed-subnets ./net-prefixes.txt
 ```
 
+### Docker examples
+
+You can find an example Dockerfile and a Docker Compose setup in the [docker-example directory](https://github.com/kzemek/go-mmproxy/tree/main/docker-example).
+
 ## Benchmark
 
 ### Setup

@@ -65,7 +65,7 @@ func TestListenUDP(t *testing.T) {
 	receivedData4 := make(chan listenResult, 1)
 	go runUDPServer(t, "127.0.0.1:54323", receivedData4)
 
-	time.Sleep(1 * time.Second)
+	time.Sleep(100 * time.Millisecond)
 
 	conn, err := net.Dial("udp", "127.0.0.1:12347")
 	if err != nil {
@@ -81,6 +81,65 @@ func TestListenUDP(t *testing.T) {
 	buf = append(buf, 192, 168, 0, 11) // daddr
 	buf = append(buf, 0xDC, 0x04)      // sport 56324
 	buf = append(buf, 0x01, 0xBB)      // dport 443
+	buf = append(buf, []byte("moredata")...)
+
+	conn.Write(buf)
+	result := <-receivedData4
+
+	if !reflect.DeepEqual(result.data, []byte("moredata")) {
+		t.Errorf("Unexpected data: %v", result.data)
+	}
+
+	if result.saddr.String() != "192.168.0.1:56324" {
+		t.Errorf("Unexpected source address: %v", result.saddr)
+	}
+}
+
+func TestListenUDP_DynamicDestination(t *testing.T) {
+	opts := utils.Options{
+		Protocol:           utils.UDP,
+		ListenAddr:         netip.MustParseAddrPort("0.0.0.0:12348"),
+		TargetAddr4:        netip.MustParseAddrPort("127.0.0.1:443"),
+		TargetAddr6:        netip.MustParseAddrPort("[::1]:443"),
+		DynamicDestination: true,
+		Mark:               0,
+		AllowedSubnets:     nil,
+		Verbose:            2,
+	}
+
+	lvl := slog.LevelInfo
+	if opts.Verbose > 0 {
+		lvl = slog.LevelDebug
+	}
+
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: lvl}))
+
+	listenConfig := net.ListenConfig{}
+	errors := make(chan error, 1)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go udp.Listen(ctx, &listenConfig, &opts, logger, errors)
+
+	receivedData4 := make(chan listenResult, 1)
+	go runUDPServer(t, "127.0.0.1:56324", receivedData4)
+
+	time.Sleep(100 * time.Millisecond)
+
+	conn, err := net.Dial("udp", "127.0.0.1:12348")
+	if err != nil {
+		t.Fatalf("Failed to connect to server: %v", err)
+	}
+	defer conn.Close()
+
+	buf := []byte{0x0D, 0x0A, 0x0D, 0x0A, 0x00, 0x0D, 0x0A, 0x51, 0x55, 0x49, 0x54, 0x0A}
+	buf = append(buf, 0x21)           // PROXY
+	buf = append(buf, 0x12)           // UDP4
+	buf = append(buf, 0x00, 0x0C)     // 12 bytes
+	buf = append(buf, 192, 168, 0, 1) // saddr
+	buf = append(buf, 127, 0, 0, 1)   // daddr
+	buf = append(buf, 0xDC, 0x04)     // sport 56324
+	buf = append(buf, 0xDC, 0x04)     // sport 56324
 	buf = append(buf, []byte("moredata")...)
 
 	conn.Write(buf)

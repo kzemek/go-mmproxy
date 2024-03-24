@@ -46,7 +46,7 @@ func CheckOriginAllowed(remoteIP netip.Addr, allowedSubnets []netip.Prefix) bool
 	return false
 }
 
-func ParseHostPort(hostport string) (netip.AddrPort, error) {
+func ParseHostPort(hostport string, ipVersion int) (netip.AddrPort, error) {
 	host, portStr, err := net.SplitHostPort(hostport)
 	if err != nil {
 		return netip.AddrPort{}, fmt.Errorf("failed to parse host and port: %w", err)
@@ -56,7 +56,16 @@ func ParseHostPort(hostport string) (netip.AddrPort, error) {
 	if err != nil {
 		return netip.AddrPort{}, fmt.Errorf("failed to lookup IP addresses: %w", err)
 	}
-	if len(ips) == 0 {
+
+	filteredIPs := make([]netip.Addr, 0, len(ips))
+	for _, stdip := range ips {
+		ip := netip.MustParseAddr(stdip.String())
+		if ipVersion == 0 || (ip.Is4() && ipVersion == 4) || (ip.Is6() && ipVersion == 6) {
+			filteredIPs = append(filteredIPs, ip)
+		}
+	}
+
+	if len(filteredIPs) == 0 {
 		return netip.AddrPort{}, fmt.Errorf("no IP addresses found")
 	}
 
@@ -65,8 +74,7 @@ func ParseHostPort(hostport string) (netip.AddrPort, error) {
 		return netip.AddrPort{}, fmt.Errorf("failed to parse port: %w", err)
 	}
 
-	ip, _ := netip.AddrFromSlice(ips[0])
-	return netip.AddrPortFrom(ip, uint16(port)), nil
+	return netip.AddrPortFrom(filteredIPs[0], uint16(port)), nil
 }
 
 func DialUpstreamControl(sport uint16, protocol Protocol, mark int) func(string, string, syscall.RawConn) error {

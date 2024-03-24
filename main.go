@@ -50,7 +50,7 @@ func init() {
 
 func listen(ctx context.Context, listenerNum int, parentLogger *slog.Logger, listenErrors chan<- error) {
 	logger := parentLogger.With(slog.Int("listenerNum", listenerNum),
-		slog.String("protocol", protocolStr), slog.String("listenAdr", opts.ListenAddr.String()))
+		slog.String("protocol", protocolStr), slog.String("listenAddr", opts.ListenAddr.String()))
 
 	listenConfig := net.ListenConfig{}
 	if listeners > 1 {
@@ -132,12 +132,12 @@ func main() {
 	}
 
 	var err error
-	if opts.ListenAddr, err = utils.ParseHostPort(listenAddrStr); err != nil {
+	if opts.ListenAddr, err = utils.ParseHostPort(listenAddrStr, 0); err != nil {
 		logger.Error("listen address is malformed", "error", err)
 		os.Exit(1)
 	}
 
-	if opts.TargetAddr4, err = netip.ParseAddrPort(targetAddr4Str); err != nil {
+	if opts.TargetAddr4, err = utils.ParseHostPort(targetAddr4Str, 4); err != nil {
 		logger.Error("ipv4 target address is malformed", "error", err)
 		os.Exit(1)
 	}
@@ -146,7 +146,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	if opts.TargetAddr6, err = netip.ParseAddrPort(targetAddr6Str); err != nil {
+	if opts.TargetAddr6, err = utils.ParseHostPort(targetAddr6Str, 6); err != nil {
 		logger.Error("ipv6 target address is malformed", "error", err)
 		os.Exit(1)
 	}

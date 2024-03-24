@@ -22,14 +22,15 @@ const (
 )
 
 type Options struct {
-	Protocol       Protocol
-	ListenAddr     netip.AddrPort
-	TargetAddr4    netip.AddrPort
-	TargetAddr6    netip.AddrPort
-	Mark           int
-	Verbose        int
-	AllowedSubnets []netip.Prefix
-	UDPCloseAfter  time.Duration
+	Protocol           Protocol
+	ListenAddr         netip.AddrPort
+	TargetAddr4        netip.AddrPort
+	TargetAddr6        netip.AddrPort
+	DynamicDestination bool
+	Mark               int
+	Verbose            int
+	AllowedSubnets     []netip.Prefix
+	UDPCloseAfter      time.Duration
 }
 
 func CheckOriginAllowed(remoteIP netip.Addr, allowedSubnets []netip.Prefix) bool {

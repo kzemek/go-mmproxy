@@ -36,6 +36,7 @@ func init() {
 	flag.StringVar(&listenAddrStr, "l", "0.0.0.0:8443", "Address the proxy listens on")
 	flag.StringVar(&targetAddr4Str, "4", "127.0.0.1:443", "Address to which IPv4 traffic will be forwarded to")
 	flag.StringVar(&targetAddr6Str, "6", "[::1]:443", "Address to which IPv6 traffic will be forwarded to")
+	flag.BoolVar(&opts.DynamicDestination, "dynamic-destination", false, "Traffic will be forwarded to the destination specified in the PROXY protocol header")
 	flag.IntVar(&opts.Mark, "mark", 0, "The mark that will be set on outbound packets")
 	flag.IntVar(&opts.Verbose, "v", 0, `0 - no logging of individual connections
 1 - log errors occurring in individual connections
@@ -44,7 +45,7 @@ func init() {
 		"Path to a file that contains allowed subnets of the proxy servers")
 	flag.IntVar(&listeners, "listeners", 1,
 		"Number of listener sockets that will be opened for the listen address (Linux 3.9+)")
-	flag.IntVar(&udpCloseAfterInt, "close-after", 60, "Number of seconds after which UDP socket will be cleaned up")
+	flag.IntVar(&udpCloseAfterInt, "close-after", 60, "Number of seconds after which UDP socket will be cleaned up on inactivity")
 }
 
 func listen(ctx context.Context, listenerNum int, parentLogger *slog.Logger, listenErrors chan<- error) {

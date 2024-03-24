@@ -75,7 +75,7 @@ func TestListen(t *testing.T) {
 	receivedData4 := make(chan listenResult, 1)
 	go runServer(t, "127.0.0.1:54321", receivedData4)
 
-	time.Sleep(1 * time.Second)
+	time.Sleep(100 * time.Millisecond)
 
 	conn, err := net.Dial("tcp", "127.0.0.1:12345")
 	if err != nil {
@@ -123,7 +123,7 @@ func TestListen_unknown(t *testing.T) {
 	receivedData4 := make(chan listenResult, 1)
 	go runServer(t, "127.0.0.1:54322", receivedData4)
 
-	time.Sleep(1 * time.Second)
+	time.Sleep(100 * time.Millisecond)
 
 	conn, err := net.Dial("tcp", "127.0.0.1:12346")
 	if err != nil {
@@ -171,7 +171,7 @@ func TestListen_proxyV2(t *testing.T) {
 	receivedData4 := make(chan listenResult, 1)
 	go runServer(t, "127.0.0.1:54323", receivedData4)
 
-	time.Sleep(1 * time.Second)
+	time.Sleep(100 * time.Millisecond)
 
 	conn, err := net.Dial("tcp", "127.0.0.1:12347")
 	if err != nil {
@@ -190,6 +190,55 @@ func TestListen_proxyV2(t *testing.T) {
 	buf = append(buf, []byte("moredata")...)
 
 	conn.Write(buf)
+	result := <-receivedData4
+
+	if !reflect.DeepEqual(result.data, []byte("moredata")) {
+		t.Errorf("Unexpected data: %v", result.data)
+	}
+
+	if result.saddr.String() != "192.168.0.1:56324" {
+		t.Errorf("Unexpected source address: %v", result.saddr)
+	}
+}
+
+func TestTCPListen_DynamicDestination(t *testing.T) {
+	opts := utils.Options{
+		Protocol:           utils.TCP,
+		ListenAddr:         netip.MustParseAddrPort("0.0.0.0:12350"),
+		TargetAddr4:        netip.MustParseAddrPort("127.0.0.1:443"),
+		TargetAddr6:        netip.MustParseAddrPort("[::1]:443"),
+		DynamicDestination: true,
+		Mark:               0,
+		AllowedSubnets:     nil,
+		Verbose:            2,
+	}
+
+	lvl := slog.LevelInfo
+	if opts.Verbose > 0 {
+		lvl = slog.LevelDebug
+	}
+
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: lvl}))
+
+	listenConfig := net.ListenConfig{}
+	errors := make(chan error, 1)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go tcp.Listen(ctx, &listenConfig, &opts, logger, errors)
+
+	receivedData4 := make(chan listenResult, 1)
+	go runServer(t, "127.0.0.1:56324", receivedData4)
+
+	time.Sleep(100 * time.Millisecond)
+
+	conn, err := net.Dial("tcp", "127.0.0.1:12350")
+	if err != nil {
+		t.Fatalf("Failed to connect to server: %v", err)
+	}
+	defer conn.Close()
+
+	conn.Write([]byte("PROXY TCP4 192.168.0.1 127.0.0.1 56324 56324\r\nmoredata"))
 	result := <-receivedData4
 
 	if !reflect.DeepEqual(result.data, []byte("moredata")) {

@@ -1,8 +1,9 @@
 // Copyright 2019 Path Network, Inc. All rights reserved.
+// Copyright 2024 Konrad Zemek <konrad.zemek@gmail.com>
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-package main
+package udp
 
 import (
 	"context"
@@ -13,33 +14,33 @@ import (
 	"sync/atomic"
 	"syscall"
 	"time"
+
+	"github.com/kzemek/go-mmproxy/buffers"
+	"github.com/kzemek/go-mmproxy/proxyprotocol"
+	"github.com/kzemek/go-mmproxy/utils"
 )
 
-type udpConnection struct {
+type connection struct {
 	lastActivity   *int64
-	clientAddr     *net.UDPAddr
-	downstreamAddr *net.UDPAddr
+	clientAddr     netip.AddrPort
+	downstreamAddr netip.AddrPort
 	upstream       *net.UDPConn
 	logger         *slog.Logger
 }
 
-func udpCloseAfterInactivity(conn *udpConnection, socketClosures chan<- string) {
+func closeAfterInactivity(conn *connection, closeAfter time.Duration, socketClosures chan<- netip.AddrPort) {
 	for {
 		lastActivity := atomic.LoadInt64(conn.lastActivity)
-		<-time.After(Opts.UDPCloseAfter)
+		<-time.After(closeAfter)
 		if atomic.LoadInt64(conn.lastActivity) == lastActivity {
 			break
 		}
 	}
 	conn.upstream.Close()
-	if conn.clientAddr != nil {
-		socketClosures <- conn.clientAddr.String()
-	} else {
-		socketClosures <- ""
-	}
+	socketClosures <- conn.clientAddr
 }
 
-func udpCopyFromUpstream(downstream net.PacketConn, conn *udpConnection) {
+func copyFromUpstream(downstream net.PacketConn, conn *connection) {
 	rawConn, err := conn.upstream.SyscallConn()
 	if err != nil {
 		conn.logger.Error("failed to retrieve raw connection from upstream socket", "error", err)
@@ -49,8 +50,8 @@ func udpCopyFromUpstream(downstream net.PacketConn, conn *udpConnection) {
 	var syscallErr error
 
 	err = rawConn.Read(func(fd uintptr) bool {
-		buf := GetBuffer()
-		defer PutBuffer(buf)
+		buf := buffers.Get()
+		defer buffers.Put(buf)
 
 		for {
 			n, _, serr := syscall.Recvfrom(int(fd), buf, syscall.MSG_DONTWAIT)
@@ -67,7 +68,7 @@ func udpCopyFromUpstream(downstream net.PacketConn, conn *udpConnection) {
 
 			atomic.AddInt64(conn.lastActivity, 1)
 
-			if _, serr := downstream.WriteTo(buf[:n], conn.downstreamAddr); serr != nil {
+			if _, serr := downstream.WriteTo(buf[:n], net.UDPAddrFromAddrPort(conn.downstreamAddr)); serr != nil {
 				syscallErr = serr
 				return true
 			}
@@ -82,30 +83,33 @@ func udpCopyFromUpstream(downstream net.PacketConn, conn *udpConnection) {
 	}
 }
 
-func udpGetSocketFromMap(downstream net.PacketConn, downstreamAddr, saddr net.Addr, logger *slog.Logger,
-	connMap map[string]*udpConnection, socketClosures chan<- string) (*udpConnection, error) {
-	connKey := ""
-	if saddr != nil {
-		connKey = saddr.String()
-	}
-	if conn := connMap[connKey]; conn != nil {
+func getSocketFromMap(downstream net.PacketConn, opts *utils.Options, downstreamAddr, saddr netip.AddrPort, logger *slog.Logger,
+	connMap map[netip.AddrPort]*connection, socketClosures chan<- netip.AddrPort) (*connection, error) {
+	if conn := connMap[saddr]; conn != nil {
 		atomic.AddInt64(conn.lastActivity, 1)
 		return conn, nil
 	}
 
-	targetAddr := Opts.TargetAddr6
-	if netip.MustParseAddr(downstreamAddr.String()).Is4() {
-		targetAddr = Opts.TargetAddr4
+	targetAddr := opts.TargetAddr6
+	if saddr.IsValid() {
+		if saddr.Addr().Is4() {
+			targetAddr = opts.TargetAddr4
+		}
+	} else {
+		if downstreamAddr.Addr().Is4() {
+			targetAddr = opts.TargetAddr4
+		}
 	}
 
 	logger = logger.With(slog.String("downstreamAddr", downstreamAddr.String()), slog.String("targetAddr", targetAddr.String()))
-	dialer := net.Dialer{LocalAddr: saddr}
-	if saddr != nil {
+	dialer := net.Dialer{}
+	if saddr.IsValid() {
 		logger = logger.With(slog.String("clientAddr", saddr.String()))
-		dialer.Control = dialUpstreamControl(saddr.(*net.UDPAddr).Port)
+		dialer.LocalAddr = net.UDPAddrFromAddrPort(saddr)
+		dialer.Control = utils.DialUpstreamControl(saddr.Port(), opts.Protocol, opts.Mark)
 	}
 
-	if Opts.Verbose > 1 {
+	if opts.Verbose > 1 {
 		logger.Debug("new connection")
 	}
 
@@ -115,24 +119,21 @@ func udpGetSocketFromMap(downstream net.PacketConn, downstreamAddr, saddr net.Ad
 		return nil, err
 	}
 
-	udpConn := &udpConnection{upstream: conn.(*net.UDPConn),
+	udpConn := &connection{upstream: conn.(*net.UDPConn),
 		logger:         logger,
 		lastActivity:   new(int64),
-		downstreamAddr: downstreamAddr.(*net.UDPAddr)}
-	if saddr != nil {
-		udpConn.clientAddr = saddr.(*net.UDPAddr)
-	}
+		clientAddr:     saddr,
+		downstreamAddr: downstreamAddr}
 
-	go udpCopyFromUpstream(downstream, udpConn)
-	go udpCloseAfterInactivity(udpConn, socketClosures)
+	go copyFromUpstream(downstream, udpConn)
+	go closeAfterInactivity(udpConn, opts.UDPCloseAfter, socketClosures)
 
-	connMap[connKey] = udpConn
+	connMap[saddr] = udpConn
 	return udpConn, nil
 }
 
-func udpListen(listenConfig *net.ListenConfig, logger *slog.Logger, errors chan<- error) {
-	ctx := context.Background()
-	ln, err := listenConfig.ListenPacket(ctx, "udp", Opts.ListenAddr.String())
+func Listen(ctx context.Context, listenConfig *net.ListenConfig, opts *utils.Options, logger *slog.Logger, errors chan<- error) {
+	ln, err := listenConfig.ListenPacket(ctx, "udp", opts.ListenAddr.String())
 	if err != nil {
 		logger.Error("failed to bind listener", "error", err)
 		errors <- err
@@ -141,25 +142,27 @@ func udpListen(listenConfig *net.ListenConfig, logger *slog.Logger, errors chan<
 
 	logger.Info("listening")
 
-	socketClosures := make(chan string, 1024)
-	connectionMap := make(map[string]*udpConnection)
+	socketClosures := make(chan netip.AddrPort, 1024)
+	connectionMap := make(map[netip.AddrPort]*connection)
 
-	buffer := GetBuffer()
-	defer PutBuffer(buffer)
+	buffer := buffers.Get()
+	defer buffers.Put(buffer)
 
 	for {
-		n, remoteAddr, err := ln.ReadFrom(buffer)
+		n, remoteAddrNet, err := ln.ReadFrom(buffer)
 		if err != nil {
 			logger.Error("failed to read from socket", "error", err)
 			continue
 		}
 
-		if !checkOriginAllowed(remoteAddr.(*net.UDPAddr).IP) {
+		remoteAddr := netip.MustParseAddrPort(remoteAddrNet.String())
+
+		if !utils.CheckOriginAllowed(remoteAddr.Addr(), opts.AllowedSubnets) {
 			logger.Debug("packet origin not in allowed subnets", slog.String("remoteAddr", remoteAddr.String()))
 			continue
 		}
 
-		saddr, _, restBytes, err := proxyReadRemoteAddr(buffer[:n], UDP)
+		saddr, _, restBytes, err := proxyprotocol.ReadRemoteAddr(buffer[:n], utils.UDP)
 		if err != nil {
 			logger.Debug("failed to parse PROXY header", "error", err, slog.String("remoteAddr", remoteAddr.String()))
 			continue
@@ -178,7 +181,7 @@ func udpListen(listenConfig *net.ListenConfig, logger *slog.Logger, errors chan<
 			}
 		}
 
-		conn, err := udpGetSocketFromMap(ln, remoteAddr, saddr, logger, connectionMap, socketClosures)
+		conn, err := getSocketFromMap(ln, opts, remoteAddr, saddr, logger, connectionMap, socketClosures)
 		if err != nil {
 			continue
 		}

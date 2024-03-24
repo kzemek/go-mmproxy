@@ -1,5 +1,9 @@
 # go-mmproxy
 
+[![CI](https://github.com/kzemek/go-mmproxy/actions/workflows/test.yml/badge.svg)](https://github.com/kzemek/go-mmproxy/actions/workflows/test.yml)
+[![Release](https://img.shields.io/github/v/release/kzemek/go-mmproxy)](https://github.com/kzemek/go-mmproxy/releases/latest)
+[![License](https://img.shields.io/github/license/kzemek/go-mmproxy)](https://github.com/kzemek/go-mmproxy/blob/master/LICENSE)
+
 This is a Go reimplementation of [mmproxy](https://github.com/cloudflare/mmproxy), created to improve on mmproxy's runtime stability while providing potentially greater performance in terms of connection and packet throughput.
 
 `go-mmproxy` is a standalone application that unwraps HAProxy's [PROXY protocol](http://www.haproxy.org/download/1.8/doc/proxy-protocol.txt) (also adopted by other projects such as NGINX) so that the network connection to the end server comes from client's - instead of proxy server's - IP address and port number.

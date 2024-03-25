@@ -26,6 +26,7 @@ See [Go's Getting Started](https://golang.org/doc/install) if your package manag
 - as root or with `CAP_NET_ADMIN` capability to be able to set `IP_TRANSPARENT` socket opt.
 
 <sup>1</sup> This is not a hard requirement, and with routing magic go-mmproxy can be ran on a different host than the target(s).
+See the [docker-example directory](https://github.com/kzemek/go-mmproxy/tree/main/docker-example) for a working example.
 
 ## Running
 

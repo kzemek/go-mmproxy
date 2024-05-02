@@ -24,3 +24,5 @@ jobs:
           compress_assets: "OFF"
           md5sum: "FALSE"
           sha256sum: "TRUE"
+        env:
+          CGO_ENABLED: 0

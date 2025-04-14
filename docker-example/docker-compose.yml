@@ -3,7 +3,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.echo
-    command: ip route replace default via 10.5.5.3 && ncat -kvnl -e /bin/cat 0.0.0.0 9000
+    command: sh -c "ip route replace default via 10.5.5.3 && ncat -kvnl -e /bin/cat 0.0.0.0 9000"
     cap_add: [ NET_ADMIN ]
     networks:
       backend:

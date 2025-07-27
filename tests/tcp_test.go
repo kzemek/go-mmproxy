@@ -6,6 +6,7 @@ package tests
 
 import (
 	"context"
+	"io"
 	"log/slog"
 	"net"
 	"net/netip"
@@ -36,14 +37,28 @@ func runServer(t *testing.T, addr string, receivedData chan<- listenResult) {
 	}
 
 	buf := make([]byte, 1024)
-	n, err := conn.Read(buf)
-	if err != nil {
-		t.Fatalf("Failed to read data: %v", err)
-	}
+	serverResponse := []byte("server response")
 
-	receivedData <- listenResult{
-		data:  buf[:n],
-		saddr: netip.MustParseAddrPort(conn.RemoteAddr().String()),
+	for {
+		n, err := conn.Read(buf)
+		if err != nil && err != io.EOF {
+			t.Errorf("Failed to read data: %v", err)
+			return
+		}
+
+		receivedData <- listenResult{
+			data:  buf[:n],
+			saddr: netip.MustParseAddrPort(conn.RemoteAddr().String()),
+		}
+
+		if _, err := conn.Write(serverResponse); err != nil {
+			t.Errorf("Failed to write data: %v", err)
+			return
+		}
+
+		if err == io.EOF {
+			break
+		}
 	}
 }
 
@@ -248,4 +263,70 @@ func TestTCPListen_DynamicDestination(t *testing.T) {
 	if result.saddr.String() != "192.168.0.1:56324" {
 		t.Errorf("Unexpected source address: %v", result.saddr)
 	}
+}
+
+func TestTCPListen_HalfClose(t *testing.T) {
+	opts := utils.Options{
+		Protocol:       utils.TCP,
+		ListenAddr:     netip.MustParseAddrPort("0.0.0.0:12351"),
+		TargetAddr4:    netip.MustParseAddrPort("127.0.0.1:54325"),
+		TargetAddr6:    netip.MustParseAddrPort("[::1]:54325"),
+		Mark:           0,
+		AllowedSubnets: nil,
+		Verbose:        2,
+	}
+
+	lvl := slog.LevelInfo
+	if opts.Verbose > 0 {
+		lvl = slog.LevelDebug
+	}
+
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: lvl}))
+
+	listenConfig := net.ListenConfig{}
+	errors := make(chan error, 1)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go tcp.Listen(ctx, &listenConfig, &opts, logger, errors)
+
+	receivedData4 := make(chan listenResult, 2)
+	go runServer(t, "127.0.0.1:54325", receivedData4)
+
+	time.Sleep(100 * time.Millisecond)
+
+	conn, err := net.Dial("tcp", "127.0.0.1:12351")
+	if err != nil {
+		t.Fatalf("Failed to connect to server: %v", err)
+	}
+	defer conn.Close()
+
+	if _, err := conn.Write([]byte("PROXY TCP4 192.168.0.1 192.168.0.11 56325 443\r\ninitial data")); err != nil {
+		t.Fatalf("Failed to write initial data: %v", err)
+	}
+
+	response := readData(t, conn)
+	if !reflect.DeepEqual(response, []byte("server response")) {
+		t.Errorf("Unexpected response: %v", response)
+	}
+
+	if err := conn.(*net.TCPConn).CloseWrite(); err != nil {
+		t.Fatalf("Failed to close write side: %v", err)
+	}
+
+	finalResponse := readData(t, conn)
+	if !reflect.DeepEqual(finalResponse, []byte("server response")) {
+		t.Errorf("Unexpected final response: %v", finalResponse)
+	}
+}
+
+func readData(t *testing.T, conn net.Conn) []byte {
+	buf := make([]byte, 1024)
+	conn.SetReadDeadline(time.Now().Add(1 * time.Second))
+	n, err := conn.Read(buf)
+	if err != nil && err != io.EOF {
+		t.Errorf("Failed to read data: %v", err)
+		return nil
+	}
+	return buf[:n]
 }

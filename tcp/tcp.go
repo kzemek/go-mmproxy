@@ -19,6 +19,9 @@ import (
 
 func copyData(dst net.Conn, src net.Conn, ch chan<- error) {
 	_, err := io.Copy(dst, src)
+	if err == nil {
+		dst.(*net.TCPConn).CloseWrite()
+	}
 	ch <- err
 }
 
@@ -121,14 +124,31 @@ func handleConnection(conn net.Conn, opts *utils.Options, logger *slog.Logger) {
 	buffers.Put(buffer)
 	buffer = nil
 
-	outErr := make(chan error, 2)
-	go copyData(upstreamConn, conn, outErr)
-	go copyData(conn, upstreamConn, outErr)
+	readConnErr := make(chan error, 1)
+	readUpstreamErr := make(chan error, 1)
+	go copyData(upstreamConn, conn, readConnErr)
+	go copyData(conn, upstreamConn, readUpstreamErr)
 
-	err = <-outErr
-	if err != nil {
-		logger.Debug("connection broken", "error", err, slog.Bool("dropConnection", true))
-	} else if opts.Verbose > 1 {
+	for i := 0; i < 2; i++ {
+		direction := ""
+		select {
+		case err = <-readConnErr:
+			direction = "read conn -> write upstream"
+		case err = <-readUpstreamErr:
+			direction = "read upstream -> write conn"
+		}
+
+		if err != nil {
+			logger.Debug("connection broken", slog.Any("error", err), slog.String("direction", direction), slog.Bool("dropConnection", true))
+			return
+		}
+
+		if opts.Verbose > 1 {
+			logger.Debug("connection shutdown for read", slog.String("direction", direction))
+		}
+	}
+
+	if opts.Verbose > 1 {
 		logger.Debug("connection closing")
 	}
 }

@@ -8,6 +8,7 @@ package udp
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net"
 	"net/netip"
@@ -134,16 +135,15 @@ func getSocketFromMap(downstream net.PacketConn, opts *utils.Options, downstream
 	return udpConn, nil
 }
 
-func Listen(ctx context.Context, listenConfig *net.ListenConfig, opts *utils.Options, logger *slog.Logger, errors chan<- error) {
+func Listen(ctx context.Context, listenConfig *net.ListenConfig, opts *utils.Options) (*net.UDPConn, error) {
 	ln, err := listenConfig.ListenPacket(ctx, "udp", opts.ListenAddr.String())
 	if err != nil {
-		logger.Error("failed to bind listener", "error", err)
-		errors <- err
-		return
+		return nil, fmt.Errorf("failed to bind listener: %w", err)
 	}
+	return ln.(*net.UDPConn), nil
+}
 
-	logger.Info("listening")
-
+func AcceptLoop(ln *net.UDPConn, opts *utils.Options, logger *slog.Logger) error {
 	socketClosures := make(chan netip.AddrPort, 1024)
 	connectionMap := make(map[netip.AddrPort]*connection)
 

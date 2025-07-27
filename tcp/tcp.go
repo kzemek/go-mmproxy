@@ -7,6 +7,7 @@ package tcp
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"log/slog"
 	"net"
@@ -153,22 +154,19 @@ func handleConnection(conn net.Conn, opts *utils.Options, logger *slog.Logger) {
 	}
 }
 
-func Listen(ctx context.Context, listenConfig *net.ListenConfig, opts *utils.Options, logger *slog.Logger, errors chan<- error) {
+func Listen(ctx context.Context, listenConfig *net.ListenConfig, opts *utils.Options) (*net.TCPListener, error) {
 	ln, err := listenConfig.Listen(ctx, "tcp", opts.ListenAddr.String())
 	if err != nil {
-		logger.Error("failed to bind listener", "error", err)
-		errors <- err
-		return
+		return nil, fmt.Errorf("failed to bind listener: %w", err)
 	}
+	return ln.(*net.TCPListener), nil
+}
 
-	logger.Info("listening")
-
+func AcceptLoop(ln *net.TCPListener, opts *utils.Options, logger *slog.Logger) error {
 	for {
 		conn, err := ln.Accept()
 		if err != nil {
-			logger.Error("failed to accept new connection", "error", err)
-			errors <- err
-			return
+			return fmt.Errorf("failed to accept new connection: %w", err)
 		}
 
 		go handleConnection(conn, opts, logger)

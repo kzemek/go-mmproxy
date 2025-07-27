@@ -13,6 +13,7 @@ import (
 	"net"
 	"net/netip"
 	"os"
+	"sync"
 	"syscall"
 	"time"
 
@@ -48,7 +49,9 @@ func init() {
 	flag.IntVar(&udpCloseAfterInt, "close-after", 60, "Number of seconds after which UDP socket will be cleaned up on inactivity")
 }
 
-func listen(ctx context.Context, listenerNum int, parentLogger *slog.Logger, listenErrors chan<- error) {
+func listen(ctx context.Context, listenerNum int, parentLogger *slog.Logger, wg *sync.WaitGroup) {
+	defer wg.Done()
+
 	logger := parentLogger.With(slog.Int("listenerNum", listenerNum),
 		slog.String("protocol", protocolStr), slog.String("listenAddr", opts.ListenAddr.String()))
 
@@ -64,11 +67,37 @@ func listen(ctx context.Context, listenerNum int, parentLogger *slog.Logger, lis
 		}
 	}
 
-	if opts.Protocol == utils.TCP {
-		tcp.Listen(ctx, &listenConfig, &opts, logger, listenErrors)
-	} else {
-		udp.Listen(ctx, &listenConfig, &opts, logger, listenErrors)
+	if err := doListen(ctx, &listenConfig, logger); err != nil {
+		logger.Error("lister error", slog.Any("error", err))
 	}
+}
+
+func doListen(ctx context.Context, listenConfig *net.ListenConfig, logger *slog.Logger) error {
+	if opts.Protocol == utils.TCP {
+		return doListenTCP(ctx, listenConfig, logger)
+	} else {
+		return doListenUDP(ctx, listenConfig, logger)
+	}
+}
+
+func doListenTCP(ctx context.Context, listenConfig *net.ListenConfig, logger *slog.Logger) error {
+	ln, err := tcp.Listen(ctx, listenConfig, &opts)
+	if err != nil {
+		return err
+	}
+	defer ln.Close()
+	logger.Info("listening")
+	return tcp.AcceptLoop(ln, &opts, logger)
+}
+
+func doListenUDP(ctx context.Context, listenConfig *net.ListenConfig, logger *slog.Logger) error {
+	ln, err := udp.Listen(ctx, listenConfig, &opts)
+	if err != nil {
+		return err
+	}
+	defer ln.Close()
+	logger.Info("listening")
+	return udp.AcceptLoop(ln, &opts, logger)
 }
 
 func loadAllowedSubnets(logger *slog.Logger) error {
@@ -161,13 +190,13 @@ func main() {
 	}
 	opts.UDPCloseAfter = time.Duration(udpCloseAfterInt) * time.Second
 
-	listenErrors := make(chan error, listeners)
+	wg := sync.WaitGroup{}
 	ctxs := make([]context.Context, listeners)
 	for i := range ctxs {
 		ctxs[i] = context.Background()
-		go listen(ctxs[i], i, logger, listenErrors)
+		wg.Add(1)
+		go listen(ctxs[i], i, logger, &wg)
 	}
-	for range ctxs {
-		<-listenErrors
-	}
+
+	wg.Wait()
 }

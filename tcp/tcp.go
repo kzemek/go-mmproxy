@@ -86,8 +86,17 @@ func handleConnection(conn net.Conn, opts *utils.Options, logger *slog.Logger) {
 
 	dialer := net.Dialer{}
 	if saddr.IsValid() {
-		dialer.LocalAddr = net.TCPAddrFromAddrPort(saddr)
-		dialer.Control = utils.DialUpstreamControl(saddr.Port(), opts.Protocol, opts.Mark)
+	        conSaddr := saddr
+	        local := netip.MustParseAddrPort(conn.LocalAddr().String())
+	        if saddr.Addr().Unmap() == local.Addr().Unmap() {
+	            logger.Debug("self-connection detected; using ephemeral source port",
+	                slog.String("clientIP", saddr.Addr().Unmap().String()),
+	                slog.Int("originalPort", int(saddr.Port())),
+	            )
+	            conSaddr = netip.AddrPortFrom(saddr.Addr(), 0)
+	        }
+		dialer.LocalAddr = net.TCPAddrFromAddrPort(conSaddr)
+		dialer.Control = utils.DialUpstreamControl(conSaddr.Port(), opts.Protocol, opts.Mark)
 	}
 	upstreamConn, err := dialer.Dial("tcp", targetAddr.String())
 	if err != nil {

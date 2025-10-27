@@ -73,7 +73,7 @@ iptables -t mangle -A PREROUTING -p tcp --dport 10000:20000 -j TPROXY \
 ip rule add fwmark 1 lookup 123
 
 # Start go-mmproxy with -listen-transparent
-./go-mmproxy -l 0.0.0.0:25577 -4 127.0.0.1:25578 -6 [::1]:25578 -listen-transparent
+go-mmproxy -l 0.0.0.0:25577 -4 127.0.0.1:25578 -6 [::1]:25578 -listen-transparent
 ```
 
 ### Starting go-mmproxy
@@ -109,7 +109,11 @@ Usage of ./go-mmproxy:
 Example invocation:
 
 ```shell
-sudo ./go-mmproxy -l 0.0.0.0:25577 -4 127.0.0.1:25578 -6 [::1]:25578 --allowed-subnets ./net-prefixes.txt
+sudo ./go-mmproxy \
+  -l 0.0.0.0:25577 \
+  -4 127.0.0.1:25578
+  -6 [::1]:25578
+  -allowed-subnets ./allowed-subnets.txt.example
 ```
 
 ### Docker examples

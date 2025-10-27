@@ -16,9 +16,9 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/kzemek/go-mmproxy/buffers"
-	"github.com/kzemek/go-mmproxy/proxyprotocol"
-	"github.com/kzemek/go-mmproxy/utils"
+	"github.com/kzemek/go-mmproxy/internal/buffers"
+	"github.com/kzemek/go-mmproxy/internal/proxyprotocol"
+	"github.com/kzemek/go-mmproxy/internal/utils"
 )
 
 type connection struct {

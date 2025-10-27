@@ -11,4 +11,4 @@ COPY . .
 
 RUN CGO_ENABLED=0 go build -v -o /usr/local/bin/go-mmproxy
 
-ENTRYPOINT ["bash", "tests/tproxy/entrypoint.sh"]
+ENTRYPOINT ["bash", "internal/tests/tproxy/entrypoint.sh"]

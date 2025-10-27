@@ -9,7 +9,7 @@ import (
 	"net/netip"
 	"testing"
 
-	"github.com/kzemek/go-mmproxy/utils"
+	"github.com/kzemek/go-mmproxy/internal/utils"
 )
 
 var tcpOpts = &utils.Options{

@@ -2,21 +2,20 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-package tests
+package proxyprotocol
 
 import (
 	"net/netip"
 	"reflect"
 	"testing"
 
-	"github.com/kzemek/go-mmproxy/proxyprotocol"
-	"github.com/kzemek/go-mmproxy/utils"
+	"github.com/kzemek/go-mmproxy/internal/utils"
 )
 
 func TestProxyProtocolV1(t *testing.T) {
 	buf := []byte("PROXY TCP4 192.168.0.1 192.168.0.11 56324 443\r\nmoredata")
 
-	saddr, daddr, rest, err := proxyprotocol.ReadRemoteAddr(buf, utils.TCP)
+	saddr, daddr, rest, err := ReadRemoteAddr(buf, utils.TCP)
 	if err != nil {
 		t.Errorf("Unexpected error: %v", err)
 	}
@@ -37,7 +36,7 @@ func TestProxyProtocolV1(t *testing.T) {
 func TestProxyProtocolV1_nontcp(t *testing.T) {
 	buf := []byte("PROXY UDP4 192.168.0.1 192.168.0.11 56324 443\r\nmoredata")
 
-	saddr, daddr, rest, err := proxyprotocol.ReadRemoteAddr(buf, utils.TCP)
+	saddr, daddr, rest, err := ReadRemoteAddr(buf, utils.TCP)
 	if err == nil {
 		t.Errorf("Error was expected, yet returned %v %v %v", saddr, daddr, rest)
 	}
@@ -46,7 +45,7 @@ func TestProxyProtocolV1_nontcp(t *testing.T) {
 func TestProxyProtocolV1_Unknown(t *testing.T) {
 	buf := []byte("PROXY UNKNOWN\r\nmoredata")
 
-	saddr, daddr, rest, err := proxyprotocol.ReadRemoteAddr(buf, utils.TCP)
+	saddr, daddr, rest, err := ReadRemoteAddr(buf, utils.TCP)
 	if err != nil {
 		t.Errorf("Unexpected error: %v", err)
 	}
@@ -67,7 +66,7 @@ func TestProxyProtocolV1_Unknown(t *testing.T) {
 func TestProxyProtocolV1_UnknownWithAddrs(t *testing.T) {
 	buf := []byte("PROXY UNKNOWN ffff::1 ffff::1 1234 1234\r\nmoredata")
 
-	saddr, daddr, rest, err := proxyprotocol.ReadRemoteAddr(buf, utils.TCP)
+	saddr, daddr, rest, err := ReadRemoteAddr(buf, utils.TCP)
 	if err != nil {
 		t.Errorf("Unexpected error: %v", err)
 	}
@@ -96,7 +95,7 @@ func TestProxyProtocolV2(t *testing.T) {
 	buf = append(buf, 0x01, 0xBB)      // dport 443
 	buf = append(buf, []byte("moredata")...)
 
-	saddr, daddr, rest, err := proxyprotocol.ReadRemoteAddr(buf, utils.TCP)
+	saddr, daddr, rest, err := ReadRemoteAddr(buf, utils.TCP)
 	if err != nil {
 		t.Errorf("Unexpected error: %v", err)
 	}
@@ -128,7 +127,7 @@ func TestProxyProtocolV2_udp6(t *testing.T) {
 	buf = append(buf, 0x01, 0xBB) // dport 443
 	buf = append(buf, []byte("moredata")...)
 
-	saddr, daddr, rest, err := proxyprotocol.ReadRemoteAddr(buf, utils.UDP)
+	saddr, daddr, rest, err := ReadRemoteAddr(buf, utils.UDP)
 	if err != nil {
 		t.Errorf("Unexpected error: %v", err)
 	}

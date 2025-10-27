@@ -28,7 +28,7 @@ jobs:
           sudo ip -6 route add local ::/0 dev lo table 123
 
       - name: Test
-        run: sudo go test -v -timeout 30s ./tests
+        run: sudo go test -v -timeout 30s ./...
 
       - name: Install deps for TPROXY integration test
         run: |
@@ -36,4 +36,4 @@ jobs:
           sudo apt-get install -y netcat-openbsd
 
       - name: TPROXY integration test
-        run: bash tests/test_tproxy.sh
+        run: bash internal/tests/test_tproxy.sh

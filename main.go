@@ -13,6 +13,7 @@ import (
 	"net"
 	"net/netip"
 	"os"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -110,7 +111,12 @@ func loadAllowedSubnets(logger *slog.Logger) error {
 
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
-		ipNet, err := netip.ParsePrefix(scanner.Text())
+		splitText := strings.SplitN(scanner.Text(), "#", 2)
+		text := strings.TrimSpace(splitText[0])
+		if text == "" {
+			continue
+		}
+		ipNet, err := netip.ParsePrefix(text)
 		if err != nil {
 			return err
 		}

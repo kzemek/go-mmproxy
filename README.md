@@ -52,6 +52,30 @@ The found interface will most likely _not_ be the loopback interface, which will
 The simplest way to fix this is to bind the end server's listeners to `127.0.0.1` (or `::1`).
 This is also generally recommended in order to avoid receiving non-proxied connections.
 
+#### Routing multiple ports
+
+`go-mmproxy` can be set up to listen on multiple ports - even all ports of the machine - using Linux's [Transparent proxy support (TPROXY)](https://www.kernel.org/doc/html/latest/networking/tproxy.html).
+This works great together with the `-dynamic-destination` flag that will dynamically choose proxy target based on the PROXY protocol header.
+
+For example, to set up `go-mmproxy` for a port range `10000-20000`:
+
+```shell
+# Set up a "local lookup" routing table 123 as in Routing setup above
+ip rule add from 127.0.0.1/8 iif lo table 123
+ip route add local 0.0.0.0/0 dev lo table 123
+
+# Redirect any new packets coming in on ports 10000-20000 to go-mmproxy's listen
+# port and mark them with 1
+iptables -t mangle -A PREROUTING -p tcp --dport 10000:20000 -j TPROXY \
+  --tproxy-mark 0x1/0x1 --on-port 25577 --on-ip 127.0.0.1
+
+# Redirect marked packets to the "local lookup" table so they find their socket
+ip rule add fwmark 1 lookup 123
+
+# Start go-mmproxy with -listen-transparent
+./go-mmproxy -l 0.0.0.0:25577 -4 127.0.0.1:25578 -6 [::1]:25578 -listen-transparent
+```
+
 ### Starting go-mmproxy
 
 ```
@@ -63,11 +87,13 @@ Usage of ./go-mmproxy:
   -allowed-subnets string
     	Path to a file that contains allowed subnets of the proxy servers
   -close-after int
-    	Number of seconds after which UDP socket will be cleaned up (default 60)
+    	Number of seconds after which UDP socket will be cleaned up on inactivity (default 60)
   -dynamic-destination
-        Traffic will be forwarded to the destination specified in the PROXY protocol header
+    	Traffic will be forwarded to the destination specified in the PROXY protocol header
   -l string
     	Address the proxy listens on (default "0.0.0.0:8443")
+  -listen-transparent
+    	Set IP_TRANSPARENT on the listen ports
   -listeners int
     	Number of listener sockets that will be opened for the listen address (Linux 3.9+) (default 1)
   -mark int

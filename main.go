@@ -48,6 +48,7 @@ func init() {
 	flag.IntVar(&listeners, "listeners", 1,
 		"Number of listener sockets that will be opened for the listen address (Linux 3.9+)")
 	flag.IntVar(&udpCloseAfterInt, "close-after", 60, "Number of seconds after which UDP socket will be cleaned up on inactivity")
+	flag.BoolVar(&opts.ListenTransparent, "listen-transparent", false, "Set IP_TRANSPARENT on the listen ports")
 }
 
 func listen(ctx context.Context, listenerNum int, parentLogger *slog.Logger, wg *sync.WaitGroup) {
@@ -57,15 +58,21 @@ func listen(ctx context.Context, listenerNum int, parentLogger *slog.Logger, wg 
 		slog.String("protocol", protocolStr), slog.String("listenAddr", opts.ListenAddr.String()))
 
 	listenConfig := net.ListenConfig{}
-	if listeners > 1 {
-		listenConfig.Control = func(network, address string, c syscall.RawConn) error {
-			return c.Control(func(fd uintptr) {
+	listenConfig.Control = func(network, address string, c syscall.RawConn) error {
+		return c.Control(func(fd uintptr) {
+			if opts.ListenTransparent {
+				if err := syscall.SetsockoptInt(int(fd), syscall.IPPROTO_IP, syscall.IP_TRANSPARENT, 1); err != nil {
+					logger.Warn("failed to set IP_TRANSPARENT on listen port", slog.String("error", err.Error()))
+				}
+			}
+
+			if listeners > 1 {
 				soReusePort := 15
 				if err := syscall.SetsockoptInt(int(fd), syscall.SOL_SOCKET, soReusePort, 1); err != nil {
-					logger.Warn("failed to set SO_REUSEPORT - only one listener setup will succeed")
+					logger.Warn("failed to set SO_REUSEPORT - only one listener setup will succeed", slog.String("error", err.Error()))
 				}
-			})
-		}
+			}
+		})
 	}
 
 	if err := doListen(ctx, &listenConfig, logger); err != nil {

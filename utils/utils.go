@@ -31,6 +31,7 @@ type Options struct {
 	Verbose            int
 	AllowedSubnets     []netip.Prefix
 	UDPCloseAfter      time.Duration
+	ListenTransparent  bool
 }
 
 func CheckOriginAllowed(remoteIP netip.Addr, allowedSubnets []netip.Prefix) bool {

@@ -29,3 +29,11 @@ jobs:
 
       - name: Test
         run: sudo go test -v -timeout 30s ./tests
+
+      - name: Install deps for TPROXY integration test
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y netcat-openbsd
+
+      - name: TPROXY integration test
+        run: bash tests/test_tproxy.sh

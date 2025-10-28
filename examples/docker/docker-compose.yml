@@ -11,8 +11,8 @@ services:
 
   go-mmproxy:
     build:
-      context: ../
-      dockerfile: docker-example/Dockerfile
+      context: ../../
+      dockerfile: examples/docker/Dockerfile
     command: ./go-mmproxy -l 0.0.0.0:1234 -4 10.5.5.2:9000 -p tcp -v 2 -mark 123
     privileged: true
     networks:

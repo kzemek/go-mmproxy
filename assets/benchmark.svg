@@ -1,0 +1,70 @@
+<svg width="740" height="300" viewBox="0 0 740 300" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">Aggregate Throughput (⇅ Mbps)</title>
+  <desc id="desc">Bar chart comparing aggregate throughput in Mbps for cloudflare/mmproxy, go-mmproxy GOMAXPROCS=1, go-mmproxy, and no proxy. Higher is better.</desc>
+  <style>
+    .axis { stroke: #333; stroke-width: 1; }
+    .grid { stroke: #ddd; stroke-width: 1; }
+    .label { font: 12px sans-serif; fill: #222; }
+    .title { font: 16px sans-serif; font-weight: 600; fill: #111; }
+    .subtitle { font: 12px sans-serif; fill: #555; }
+    .tick { font: 11px sans-serif; fill: #444; }
+    .bar { rx: 6; ry: 6; }
+    .value { font: 12px sans-serif; fill: #111; font-weight: 600; }
+    .value--invert { fill: #fff; font-weight: 600; }
+  </style>
+
+  <!-- Background -->
+  <rect x="0" y="0" width="740" height="300" fill="#fff"/>
+
+  <!-- Title -->
+  <text class="title" x="160" y="24">Aggregate Throughput (⇅ Mbps)</text>
+
+  <!-- Grid (vertical only for readability) -->
+  <g>
+    <line class="grid" x1="260" y1="40" x2="260" y2="280"/>
+    <line class="grid" x1="360" y1="40" x2="360" y2="280"/>
+    <line class="grid" x1="460" y1="40" x2="460" y2="280"/>
+    <line class="grid" x1="560" y1="40" x2="560" y2="280"/>
+    <line class="grid" x1="660" y1="40" x2="660" y2="280"/>
+  </g>
+
+  <!-- X axis line -->
+  <line class="axis" x1="160" y1="280" x2="720" y2="280"/>
+
+  <!-- X tick labels -->
+  <g>
+    <text class="tick" x="160" y="296" text-anchor="middle">0</text>
+    <text class="tick" x="260" y="296" text-anchor="middle">10 000</text>
+    <text class="tick" x="360" y="296" text-anchor="middle">20 000</text>
+    <text class="tick" x="460" y="296" text-anchor="middle">30 000</text>
+    <text class="tick" x="560" y="296" text-anchor="middle">40 000</text>
+    <text class="tick" x="660" y="296" text-anchor="middle">50 000</text>
+    <text class="tick" x="700" y="296" text-anchor="middle">[Mb/s]</text>
+  </g>
+
+  <!-- Y labels -->
+  <g>
+    <text class="label" x="150" y="68" text-anchor="end">cloudflare/mmproxy</text>
+    <text class="label" x="150" y="120" text-anchor="end">go-mmproxy</text>
+    <text class="label" x="150" y="135" text-anchor="end">GOMAXPROCS=1</text>
+    <text class="label" x="150" y="188" text-anchor="end">go-mmproxy</text>
+    <text class="label" x="150" y="248" text-anchor="end">no proxy</text>
+  </g>
+
+  <!-- Bars -->
+  <!-- cloudflare/mmproxy -->
+  <rect class="bar" x="160" y="45" width="15.24454" height="35" fill="#6baed6" />
+  <text class="value" x="180" y="68">1 524.454</text>
+
+  <!-- go-mmproxy GOMAXPROCS=1 -->
+  <rect class="bar" x="160" y="105" width="74.18312" height="35" fill="#9ecae1" />
+  <text class="value" x="240" y="128">7 418.312</text>
+
+  <!-- go-mmproxy (dark bar → invert text, place inside bar) -->
+  <rect class="bar" x="160" y="165" width="454.83233" height="35" fill="#3182bd" />
+  <text class="value value--invert" x="608" y="188" text-anchor="end">45 483.233</text>
+
+  <!-- no proxy (darkest bar → invert text, place inside bar) -->
+  <rect class="bar" x="160" y="225" width="526.40116" height="35" fill="#08519c" />
+  <text class="value value--invert" x="680" y="248" text-anchor="end">52 640.116</text>
+</svg>

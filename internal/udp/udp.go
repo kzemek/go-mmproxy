@@ -22,11 +22,11 @@ import (
 )
 
 type connection struct {
-	lastActivity   *int64
-	clientAddr     netip.AddrPort
-	downstreamAddr netip.AddrPort
-	upstream       *net.UDPConn
-	logger         *slog.Logger
+	lastActivity       *int64
+	proxyHeaderSrcAddr netip.AddrPort
+	frontendRemoteAddr netip.AddrPort
+	backendConn        *net.UDPConn
+	logger             *slog.Logger
 }
 
 func closeAfterInactivity(conn *connection, closeAfter time.Duration, socketClosures chan<- netip.AddrPort) {
@@ -37,14 +37,14 @@ func closeAfterInactivity(conn *connection, closeAfter time.Duration, socketClos
 			break
 		}
 	}
-	conn.upstream.Close()
-	socketClosures <- conn.clientAddr
+	conn.backendConn.Close()
+	socketClosures <- conn.proxyHeaderSrcAddr
 }
 
-func copyFromUpstream(downstream net.PacketConn, conn *connection) {
-	rawConn, err := conn.upstream.SyscallConn()
+func copyFromBackend(frontendConn net.PacketConn, conn *connection) {
+	rawConn, err := conn.backendConn.SyscallConn()
 	if err != nil {
-		conn.logger.Error("failed to retrieve raw connection from upstream socket", "error", err)
+		conn.logger.Error("failed to retrieve raw connection from backend socket", "error", err)
 		return
 	}
 
@@ -69,7 +69,7 @@ func copyFromUpstream(downstream net.PacketConn, conn *connection) {
 
 			atomic.AddInt64(conn.lastActivity, 1)
 
-			if _, serr := downstream.WriteTo(buf[:n], net.UDPAddrFromAddrPort(conn.downstreamAddr)); serr != nil {
+			if _, serr := frontendConn.WriteTo(buf[:n], net.UDPAddrFromAddrPort(conn.frontendRemoteAddr)); serr != nil {
 				syscallErr = serr
 				return true
 			}
@@ -80,36 +80,40 @@ func copyFromUpstream(downstream net.PacketConn, conn *connection) {
 		err = syscallErr
 	}
 	if err != nil {
-		conn.logger.Debug("failed to read from upstream", "error", err)
+		conn.logger.Debug("failed to read from backend", "error", err)
 	}
 }
 
-func getSocketFromMap(downstream net.PacketConn, opts *utils.Options, downstreamAddr, saddr, daddr netip.AddrPort,
+func getSocketFromMap(frontendConn net.PacketConn, opts *utils.Options,
+	frontendRemoteAddr, proxyHeaderSrcAddr, proxyHeaderDstAddr netip.AddrPort,
 	logger *slog.Logger, connMap map[netip.AddrPort]*connection, socketClosures chan<- netip.AddrPort) (*connection, error) {
-	if conn := connMap[saddr]; conn != nil {
+	if conn := connMap[proxyHeaderSrcAddr]; conn != nil {
 		atomic.AddInt64(conn.lastActivity, 1)
 		return conn, nil
 	}
 
 	targetAddr := opts.TargetAddr6
-	if saddr.IsValid() {
-		if opts.DynamicDestination && daddr.IsValid() {
-			targetAddr = daddr
-		} else if saddr.Addr().Is4() {
+	if proxyHeaderSrcAddr.IsValid() {
+		if opts.DynamicDestination && proxyHeaderDstAddr.IsValid() {
+			targetAddr = proxyHeaderDstAddr
+		} else if proxyHeaderSrcAddr.Addr().Is4() {
 			targetAddr = opts.TargetAddr4
 		}
 	} else {
-		if downstreamAddr.Addr().Is4() {
+		if frontendRemoteAddr.Addr().Is4() {
 			targetAddr = opts.TargetAddr4
 		}
 	}
 
-	logger = logger.With(slog.String("downstreamAddr", downstreamAddr.String()), slog.String("targetAddr", targetAddr.String()))
+	logger = logger.With(
+		slog.String("frontendRemoteAddr", frontendRemoteAddr.String()),
+		slog.String("targetAddr", targetAddr.String()))
+
 	dialer := net.Dialer{}
-	if saddr.IsValid() {
-		logger = logger.With(slog.String("clientAddr", saddr.String()))
-		dialer.LocalAddr = net.UDPAddrFromAddrPort(saddr)
-		dialer.Control = utils.DialUpstreamControl(saddr.Port(), opts.Protocol, opts.Mark)
+	if proxyHeaderSrcAddr.IsValid() {
+		logger = logger.With(slog.String("clientAddr", proxyHeaderSrcAddr.String()))
+		dialer.LocalAddr = net.UDPAddrFromAddrPort(proxyHeaderSrcAddr)
+		dialer.Control = utils.DialBackendControl(proxyHeaderSrcAddr.Port(), opts.Protocol, opts.Mark)
 	}
 
 	if opts.Verbose > 1 {
@@ -118,20 +122,21 @@ func getSocketFromMap(downstream net.PacketConn, opts *utils.Options, downstream
 
 	conn, err := dialer.Dial("udp", targetAddr.String())
 	if err != nil {
-		logger.Debug("failed to connect to upstream", "error", err)
+		logger.Debug("failed to connect to backend", "error", err)
 		return nil, err
 	}
 
-	udpConn := &connection{upstream: conn.(*net.UDPConn),
-		logger:         logger,
-		lastActivity:   new(int64),
-		clientAddr:     saddr,
-		downstreamAddr: downstreamAddr}
+	udpConn := &connection{
+		backendConn:        conn.(*net.UDPConn),
+		logger:             logger,
+		lastActivity:       new(int64),
+		proxyHeaderSrcAddr: proxyHeaderSrcAddr,
+		frontendRemoteAddr: frontendRemoteAddr}
 
-	go copyFromUpstream(downstream, udpConn)
+	go copyFromBackend(frontendConn, udpConn)
 	go closeAfterInactivity(udpConn, opts.UDPCloseAfter, socketClosures)
 
-	connMap[saddr] = udpConn
+	connMap[proxyHeaderSrcAddr] = udpConn
 	return udpConn, nil
 }
 
@@ -151,22 +156,22 @@ func AcceptLoop(ln *net.UDPConn, opts *utils.Options, logger *slog.Logger) error
 	defer buffers.Put(buffer)
 
 	for {
-		n, remoteAddrNet, err := ln.ReadFrom(buffer)
+		n, frontendRemoteAddrNet, err := ln.ReadFrom(buffer)
 		if err != nil {
 			logger.Error("failed to read from socket", "error", err)
 			continue
 		}
 
-		remoteAddr := netip.MustParseAddrPort(remoteAddrNet.String())
+		frontendRemoteAddr := netip.MustParseAddrPort(frontendRemoteAddrNet.String())
 
-		if !utils.CheckOriginAllowed(remoteAddr.Addr(), opts.AllowedSubnets) {
-			logger.Debug("packet origin not in allowed subnets", slog.String("remoteAddr", remoteAddr.String()))
+		if !utils.CheckOriginAllowed(frontendRemoteAddr.Addr(), opts.AllowedSubnets) {
+			logger.Debug("packet origin not in allowed subnets", slog.String("frontendRemoteAddr", frontendRemoteAddr.String()))
 			continue
 		}
 
-		saddr, daddr, restBytes, err := proxyprotocol.ReadRemoteAddr(buffer[:n], utils.UDP)
+		proxyHeaderSrcAddr, proxyHeaderDstAddr, restBytes, err := proxyprotocol.ReadRemoteAddr(buffer[:n], utils.UDP)
 		if err != nil {
-			logger.Debug("failed to parse PROXY header", "error", err, slog.String("remoteAddr", remoteAddr.String()))
+			logger.Debug("failed to parse PROXY header", "error", err, slog.String("frontendRemoteAddr", frontendRemoteAddr.String()))
 			continue
 		}
 
@@ -183,14 +188,14 @@ func AcceptLoop(ln *net.UDPConn, opts *utils.Options, logger *slog.Logger) error
 			}
 		}
 
-		conn, err := getSocketFromMap(ln, opts, remoteAddr, saddr, daddr, logger, connectionMap, socketClosures)
+		conn, err := getSocketFromMap(ln, opts, frontendRemoteAddr, proxyHeaderSrcAddr, proxyHeaderDstAddr, logger, connectionMap, socketClosures)
 		if err != nil {
 			continue
 		}
 
-		_, err = conn.upstream.Write(restBytes)
+		_, err = conn.backendConn.Write(restBytes)
 		if err != nil {
-			conn.logger.Error("failed to write to upstream socket", "error", err)
+			conn.logger.Error("failed to write to backend socket", "error", err)
 		}
 	}
 }

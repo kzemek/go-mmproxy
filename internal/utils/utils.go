@@ -78,14 +78,14 @@ func ParseHostPort(hostport string, ipVersion int) (netip.AddrPort, error) {
 	return netip.AddrPortFrom(filteredIPs[0], uint16(port)), nil
 }
 
-func DialUpstreamControl(sport uint16, protocol Protocol, mark int) func(string, string, syscall.RawConn) error {
+func DialBackendControl(sport uint16, protocol Protocol, mark int) func(string, string, syscall.RawConn) error {
 	return func(network, address string, c syscall.RawConn) error {
 		var syscallErr error
 		err := c.Control(func(fd uintptr) {
 			if protocol == TCP {
 				syscallErr = syscall.SetsockoptInt(int(fd), syscall.IPPROTO_TCP, syscall.TCP_SYNCNT, 2)
 				if syscallErr != nil {
-					syscallErr = fmt.Errorf("setsockopt(IPPROTO_TCP, TCP_SYNCTNT, 2): %w", syscallErr)
+					syscallErr = fmt.Errorf("setsockopt(IPPROTO_TCP, TCP_SYNCNT, 2): %w", syscallErr)
 					return
 				}
 			}
@@ -122,7 +122,7 @@ func DialUpstreamControl(sport uint16, protocol Protocol, mark int) func(string,
 			if network == "tcp6" || network == "udp6" {
 				syscallErr = syscall.SetsockoptInt(int(fd), syscall.IPPROTO_IPV6, syscall.IPV6_V6ONLY, 0)
 				if syscallErr != nil {
-					syscallErr = fmt.Errorf("setsockopt(IPPROTO_IP, IPV6_ONLY, 0): %w", syscallErr)
+					syscallErr = fmt.Errorf("setsockopt(IPPROTO_IPV6, IPV6_V6ONLY, 0): %w", syscallErr)
 					return
 				}
 			}

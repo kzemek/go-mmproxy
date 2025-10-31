@@ -15,7 +15,7 @@ import (
 	"github.com/kzemek/go-mmproxy/internal/utils"
 )
 
-func readRemoteAddrPROXYv2(ctrlBuf []byte, protocol utils.Protocol) (saddr, daddr netip.AddrPort, data []byte, resultErr error) {
+func readRemoteAddrPROXYv2(ctrlBuf []byte, protocol utils.Protocol) (proxyHeaderSrcAddr, proxyHeaderDstAddr netip.AddrPort, data []byte, resultErr error) {
 	if (ctrlBuf[12] >> 4) != 2 {
 		resultErr = fmt.Errorf("unknown protocol version %d", ctrlBuf[12]>>4)
 		return
@@ -68,7 +68,7 @@ func readRemoteAddrPROXYv2(ctrlBuf []byte, protocol utils.Protocol) (saddr, dadd
 		return
 	}
 	if dport == 0 {
-		resultErr = fmt.Errorf("invalid destination port %d", sport)
+		resultErr = fmt.Errorf("invalid destination port %d", dport)
 		return
 	}
 
@@ -81,13 +81,13 @@ func readRemoteAddrPROXYv2(ctrlBuf []byte, protocol utils.Protocol) (saddr, dadd
 		dstIP, _ = netip.AddrFromSlice(ctrlBuf[32:48])
 	}
 
-	saddr = netip.AddrPortFrom(srcIP, sport)
-	daddr = netip.AddrPortFrom(dstIP, dport)
+	proxyHeaderSrcAddr = netip.AddrPortFrom(srcIP, sport)
+	proxyHeaderDstAddr = netip.AddrPortFrom(dstIP, dport)
 	data = ctrlBuf[16+dataLen:]
 	return
 }
 
-func readRemoteAddrPROXYv1(ctrlBuf []byte) (saddr, daddr netip.AddrPort, data []byte, resultErr error) {
+func readRemoteAddrPROXYv1(ctrlBuf []byte) (proxyHeaderSrcAddr, proxyHeaderDstAddr netip.AddrPort, data []byte, resultErr error) {
 	str := string(ctrlBuf)
 	idx := strings.Index(str, "\r\n")
 	if idx < 0 {
@@ -130,7 +130,7 @@ func readRemoteAddrPROXYv1(ctrlBuf []byte) (saddr, daddr netip.AddrPort, data []
 		return
 	}
 	if dport <= 0 || dport > 65535 {
-		resultErr = fmt.Errorf("invalid destination port %d", sport)
+		resultErr = fmt.Errorf("invalid destination port %d", dport)
 		return
 	}
 	srcIP, err := netip.ParseAddr(src)
@@ -144,17 +144,17 @@ func readRemoteAddrPROXYv1(ctrlBuf []byte) (saddr, daddr netip.AddrPort, data []
 		return
 	}
 
-	saddr = netip.AddrPortFrom(srcIP, uint16(sport))
-	daddr = netip.AddrPortFrom(dstIP, uint16(dport))
+	proxyHeaderSrcAddr = netip.AddrPortFrom(srcIP, uint16(sport))
+	proxyHeaderDstAddr = netip.AddrPortFrom(dstIP, uint16(dport))
 	data = ctrlBuf[idx+2:]
 	return
 }
 
 var proxyv2header = []byte{0x0D, 0x0A, 0x0D, 0x0A, 0x00, 0x0D, 0x0A, 0x51, 0x55, 0x49, 0x54, 0x0A}
 
-func ReadRemoteAddr(buf []byte, protocol utils.Protocol) (saddr, daddr netip.AddrPort, rest []byte, err error) {
+func ReadRemoteAddr(buf []byte, protocol utils.Protocol) (proxyHeaderSrcAddr, proxyHeaderDstAddr netip.AddrPort, rest []byte, err error) {
 	if len(buf) >= 16 && bytes.Equal(buf[:12], proxyv2header) {
-		saddr, daddr, rest, err = readRemoteAddrPROXYv2(buf, protocol)
+		proxyHeaderSrcAddr, proxyHeaderDstAddr, rest, err = readRemoteAddrPROXYv2(buf, protocol)
 		if err != nil {
 			err = fmt.Errorf("failed to parse PROXY v2 header: %w", err)
 		}
@@ -163,7 +163,7 @@ func ReadRemoteAddr(buf []byte, protocol utils.Protocol) (saddr, daddr netip.Add
 
 	// PROXYv1 only works with TCP
 	if protocol == utils.TCP && len(buf) >= 8 && bytes.Equal(buf[:5], []byte("PROXY")) {
-		saddr, daddr, rest, err = readRemoteAddrPROXYv1(buf)
+		proxyHeaderSrcAddr, proxyHeaderDstAddr, rest, err = readRemoteAddrPROXYv1(buf)
 		if err != nil {
 			err = fmt.Errorf("failed to parse PROXY v1 header: %w", err)
 		}

@@ -26,15 +26,15 @@ func copyData(dst net.Conn, src net.Conn, ch chan<- error) {
 	ch <- err
 }
 
-func handleConnection(conn net.Conn, opts *utils.Options, logger *slog.Logger) {
-	defer conn.Close()
+func handleConnection(frontendConn net.Conn, opts *utils.Options, logger *slog.Logger) {
+	defer frontendConn.Close()
 
-	remoteAddr := netip.MustParseAddrPort(conn.RemoteAddr().String())
+	frontendRemoteAddr := netip.MustParseAddrPort(frontendConn.RemoteAddr().String())
 
-	logger = logger.With(slog.String("remoteAddr", remoteAddr.String()),
-		slog.String("localAddr", conn.LocalAddr().String()))
+	logger = logger.With(slog.String("frontendRemoteAddr", frontendRemoteAddr.String()),
+		slog.String("frontendLocalAddr", frontendConn.LocalAddr().String()))
 
-	if !utils.CheckOriginAllowed(remoteAddr.Addr(), opts.AllowedSubnets) {
+	if !utils.CheckOriginAllowed(frontendRemoteAddr.Addr(), opts.AllowedSubnets) {
 		logger.Debug("connection origin not in allowed subnets", slog.Bool("dropConnection", true))
 		return
 	}
@@ -50,34 +50,34 @@ func handleConnection(conn net.Conn, opts *utils.Options, logger *slog.Logger) {
 		}
 	}()
 
-	n, err := conn.Read(buffer)
+	n, err := frontendConn.Read(buffer)
 	if err != nil {
 		logger.Debug("failed to read PROXY header", "error", err, slog.Bool("dropConnection", true))
 		return
 	}
 
-	saddr, daddr, restBytes, err := proxyprotocol.ReadRemoteAddr(buffer[:n], utils.TCP)
+	proxyHeaderSrcAddr, proxyHeaderDstAddr, restBytes, err := proxyprotocol.ReadRemoteAddr(buffer[:n], utils.TCP)
 	if err != nil {
 		logger.Debug("failed to parse PROXY header", "error", err, slog.Bool("dropConnection", true))
 		return
 	}
 
 	targetAddr := opts.TargetAddr6
-	if saddr.IsValid() {
-		if opts.DynamicDestination && daddr.IsValid() {
-			targetAddr = daddr
-		} else if saddr.Addr().Is4() {
+	if proxyHeaderSrcAddr.IsValid() {
+		if opts.DynamicDestination && proxyHeaderDstAddr.IsValid() {
+			targetAddr = proxyHeaderDstAddr
+		} else if proxyHeaderSrcAddr.Addr().Is4() {
 			targetAddr = opts.TargetAddr4
 		}
 	} else {
-		if remoteAddr.Addr().Is4() {
+		if frontendRemoteAddr.Addr().Is4() {
 			targetAddr = opts.TargetAddr4
 		}
 	}
 
 	clientAddr := "UNKNOWN"
-	if saddr.IsValid() {
-		clientAddr = saddr.String()
+	if proxyHeaderSrcAddr.IsValid() {
+		clientAddr = proxyHeaderSrcAddr.String()
 	}
 	logger = logger.With(slog.String("clientAddr", clientAddr), slog.String("targetAddr", targetAddr.String()))
 	if opts.Verbose > 1 {
@@ -85,37 +85,37 @@ func handleConnection(conn net.Conn, opts *utils.Options, logger *slog.Logger) {
 	}
 
 	dialer := net.Dialer{}
-	if saddr.IsValid() {
-		dialer.LocalAddr = net.TCPAddrFromAddrPort(saddr)
-		dialer.Control = utils.DialUpstreamControl(saddr.Port(), opts.Protocol, opts.Mark)
+	if proxyHeaderSrcAddr.IsValid() {
+		dialer.LocalAddr = net.TCPAddrFromAddrPort(proxyHeaderSrcAddr)
+		dialer.Control = utils.DialBackendControl(proxyHeaderSrcAddr.Port(), opts.Protocol, opts.Mark)
 	}
-	upstreamConn, err := dialer.Dial("tcp", targetAddr.String())
+	backendConn, err := dialer.Dial("tcp", targetAddr.String())
 	if err != nil {
-		logger.Debug("failed to establish upstream connection", "error", err, slog.Bool("dropConnection", true))
+		logger.Debug("failed to establish backend connection", "error", err, slog.Bool("dropConnection", true))
 		return
 	}
 
-	defer upstreamConn.Close()
+	defer backendConn.Close()
 	if opts.Verbose > 1 {
-		logger.Debug("successfully established upstream connection")
+		logger.Debug("successfully established backend connection")
 	}
 
-	if err := conn.(*net.TCPConn).SetNoDelay(true); err != nil {
-		logger.Debug("failed to set nodelay on downstream connection", "error", err, slog.Bool("dropConnection", true))
+	if err := frontendConn.(*net.TCPConn).SetNoDelay(true); err != nil {
+		logger.Debug("failed to set nodelay on frontend connection", "error", err, slog.Bool("dropConnection", true))
 	} else if opts.Verbose > 1 {
-		logger.Debug("successfully set NoDelay on downstream connection")
+		logger.Debug("successfully set NoDelay on frontend connection")
 	}
 
-	if err := upstreamConn.(*net.TCPConn).SetNoDelay(true); err != nil {
-		logger.Debug("failed to set nodelay on upstream connection", "error", err, slog.Bool("dropConnection", true))
+	if err := backendConn.(*net.TCPConn).SetNoDelay(true); err != nil {
+		logger.Debug("failed to set nodelay on backend connection", "error", err, slog.Bool("dropConnection", true))
 	} else if opts.Verbose > 1 {
-		logger.Debug("successfully set NoDelay on upstream connection")
+		logger.Debug("successfully set NoDelay on backend connection")
 	}
 
 	for len(restBytes) > 0 {
-		n, err := upstreamConn.Write(restBytes)
+		n, err := backendConn.Write(restBytes)
 		if err != nil {
-			logger.Debug("failed to write data to upstream connection",
+			logger.Debug("failed to write data to backend connection",
 				"error", err, slog.Bool("dropConnection", true))
 			return
 		}
@@ -125,18 +125,18 @@ func handleConnection(conn net.Conn, opts *utils.Options, logger *slog.Logger) {
 	buffers.Put(buffer)
 	buffer = nil
 
-	readConnErr := make(chan error, 1)
-	readUpstreamErr := make(chan error, 1)
-	go copyData(upstreamConn, conn, readConnErr)
-	go copyData(conn, upstreamConn, readUpstreamErr)
+	readFrontendErr := make(chan error, 1)
+	readBackendErr := make(chan error, 1)
+	go copyData(backendConn, frontendConn, readFrontendErr)
+	go copyData(frontendConn, backendConn, readBackendErr)
 
 	for i := 0; i < 2; i++ {
 		direction := ""
 		select {
-		case err = <-readConnErr:
-			direction = "read conn -> write upstream"
-		case err = <-readUpstreamErr:
-			direction = "read upstream -> write conn"
+		case err = <-readFrontendErr:
+			direction = "read frontend -> write backend"
+		case err = <-readBackendErr:
+			direction = "read backend -> write frontend"
 		}
 
 		if err != nil {

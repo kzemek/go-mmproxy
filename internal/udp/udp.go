@@ -1,5 +1,5 @@
 // Copyright 2019 Path Network, Inc. All rights reserved.
-// Copyright 2024 Konrad Zemek <konrad.zemek@gmail.com>
+// Copyright 2024-2025 Konrad Zemek <konrad.zemek@gmail.com>
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
@@ -41,7 +41,7 @@ func closeAfterInactivity(conn *connection, closeAfter time.Duration, socketClos
 	socketClosures <- conn.proxyHeaderSrcAddr
 }
 
-func copyFromBackend(frontendConn net.PacketConn, conn *connection) {
+func copyFromBackend(frontendConn net.PacketConn, conn *connection, buffers buffers.BufferPool) {
 	rawConn, err := conn.backendConn.SyscallConn()
 	if err != nil {
 		conn.logger.Error("failed to retrieve raw connection from backend socket", "error", err)
@@ -86,7 +86,7 @@ func copyFromBackend(frontendConn net.PacketConn, conn *connection) {
 
 func getSocketFromMap(frontendConn net.PacketConn, opts *utils.Options,
 	frontendRemoteAddr, proxyHeaderSrcAddr, proxyHeaderDstAddr netip.AddrPort,
-	logger *slog.Logger, connMap map[netip.AddrPort]*connection, socketClosures chan<- netip.AddrPort) (*connection, error) {
+	logger *slog.Logger, connMap map[netip.AddrPort]*connection, socketClosures chan<- netip.AddrPort, buffers buffers.BufferPool) (*connection, error) {
 	if conn := connMap[proxyHeaderSrcAddr]; conn != nil {
 		atomic.AddInt64(conn.lastActivity, 1)
 		return conn, nil
@@ -133,7 +133,7 @@ func getSocketFromMap(frontendConn net.PacketConn, opts *utils.Options,
 		proxyHeaderSrcAddr: proxyHeaderSrcAddr,
 		frontendRemoteAddr: frontendRemoteAddr}
 
-	go copyFromBackend(frontendConn, udpConn)
+	go copyFromBackend(frontendConn, udpConn, buffers)
 	go closeAfterInactivity(udpConn, opts.UDPCloseAfter, socketClosures)
 
 	connMap[proxyHeaderSrcAddr] = udpConn
@@ -148,7 +148,7 @@ func Listen(ctx context.Context, listenConfig *net.ListenConfig, opts *utils.Opt
 	return ln.(*net.UDPConn), nil
 }
 
-func AcceptLoop(ln *net.UDPConn, opts *utils.Options, logger *slog.Logger) error {
+func AcceptLoop(ln *net.UDPConn, opts *utils.Options, buffers buffers.BufferPool, logger *slog.Logger) error {
 	socketClosures := make(chan netip.AddrPort, 1024)
 	connectionMap := make(map[netip.AddrPort]*connection)
 
@@ -188,7 +188,7 @@ func AcceptLoop(ln *net.UDPConn, opts *utils.Options, logger *slog.Logger) error
 			}
 		}
 
-		conn, err := getSocketFromMap(ln, opts, frontendRemoteAddr, proxyHeaderSrcAddr, proxyHeaderDstAddr, logger, connectionMap, socketClosures)
+		conn, err := getSocketFromMap(ln, opts, frontendRemoteAddr, proxyHeaderSrcAddr, proxyHeaderDstAddr, logger, connectionMap, socketClosures, buffers)
 		if err != nil {
 			continue
 		}

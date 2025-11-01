@@ -1,24 +1,28 @@
-// Copyright 2024 Konrad Zemek <konrad.zemek@gmail.com>
+// Copyright 2024-2025 Konrad Zemek <konrad.zemek@gmail.com>
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-package buffers
+package buffers_test
 
 import (
 	"testing"
+
+	"github.com/kzemek/go-mmproxy/internal/buffers"
 )
 
 func TestGetGetsAPutBuffer(t *testing.T) {
-	buf1 := Get()
-	buf2 := Get()
+	buffers := buffers.New()
+
+	buf1 := buffers.Get()
+	buf2 := buffers.Get()
 
 	for i := range buf1 {
 		buf1[i] = 127
 	}
 
-	Put(buf1)
+	buffers.Put(buf1)
 
-	buf3 := Get()
+	buf3 := buffers.Get()
 
 	for i := range buf3 {
 		if buf3[i] != 127 {
@@ -26,6 +30,6 @@ func TestGetGetsAPutBuffer(t *testing.T) {
 		}
 	}
 
-	Put(buf3)
-	Put(buf2)
+	buffers.Put(buf3)
+	buffers.Put(buf2)
 }

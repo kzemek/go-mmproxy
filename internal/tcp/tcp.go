@@ -1,5 +1,5 @@
 // Copyright 2019 Path Network, Inc. All rights reserved.
-// Copyright 2024 Konrad Zemek <konrad.zemek@gmail.com>
+// Copyright 2024-2025 Konrad Zemek <konrad.zemek@gmail.com>
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
@@ -26,7 +26,7 @@ func copyData(dst net.Conn, src net.Conn, ch chan<- error) {
 	ch <- err
 }
 
-func handleConnection(frontendConn net.Conn, opts *utils.Options, logger *slog.Logger) {
+func handleConnection(frontendConn net.Conn, opts *utils.Options, buffers buffers.BufferPool, logger *slog.Logger) {
 	defer frontendConn.Close()
 
 	frontendRemoteAddr := netip.MustParseAddrPort(frontendConn.RemoteAddr().String())
@@ -162,13 +162,13 @@ func Listen(ctx context.Context, listenConfig *net.ListenConfig, opts *utils.Opt
 	return ln.(*net.TCPListener), nil
 }
 
-func AcceptLoop(ln *net.TCPListener, opts *utils.Options, logger *slog.Logger) error {
+func AcceptLoop(ln *net.TCPListener, opts *utils.Options, buffers buffers.BufferPool, logger *slog.Logger) error {
 	for {
 		conn, err := ln.Accept()
 		if err != nil {
 			return fmt.Errorf("failed to accept new connection: %w", err)
 		}
 
-		go handleConnection(conn, opts, logger)
+		go handleConnection(conn, opts, buffers, logger)
 	}
 }

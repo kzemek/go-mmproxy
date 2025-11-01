@@ -11,21 +11,25 @@ import (
 	"github.com/kzemek/go-mmproxy/internal/utils"
 )
 
-var udpOpts = &utils.Options{
-	Protocol:       utils.UDP,
-	ListenAddr:     netip.MustParseAddrPort("0.0.0.0:12347"),
-	TargetAddr4:    netip.MustParseAddrPort("127.0.0.1:54323"),
-	TargetAddr6:    netip.MustParseAddrPort("[::1]:54323"),
-	Mark:           0,
-	AllowedSubnets: nil,
-	Verbose:        0,
+func udpOpts() *utils.Options {
+	return &utils.Options{
+		Protocol:       utils.UDP,
+		ListenAddr:     netip.MustParseAddrPort("0.0.0.0:12347"),
+		TargetAddr4:    netip.MustParseAddrPort("127.0.0.1:54323"),
+		TargetAddr6:    netip.MustParseAddrPort("[::1]:54323"),
+		Mark:           0,
+		AllowedSubnets: nil,
+		Verbose:        0,
+	}
 }
 
 func TestListenUDP(t *testing.T) {
-	receivedData4 := runUdpTargetServer(t, udpOpts.TargetAddr4)
+	opts := udpOpts()
 
-	conn := connectToGoMmproxy(t, udpOpts)
-	sendProxyV2Message(t, conn, udpOpts, "192.168.0.1:56324", "192.168.0.11:443", "moredata")
+	receivedData4 := runUdpTargetServer(t, opts.TargetAddr4)
+
+	conn := connectToGoMmproxy(t, opts)
+	sendProxyV2Message(t, conn, opts, "192.168.0.1:56324", "192.168.0.11:443", "moredata")
 
 	result := <-receivedData4
 
@@ -39,7 +43,8 @@ func TestListenUDP(t *testing.T) {
 }
 
 func TestListenUDP_DynamicDestination(t *testing.T) {
-	opts := udpOpts
+	opts := udpOpts()
+
 	opts.ListenAddr = netip.MustParseAddrPort("0.0.0.0:12348")
 	opts.DynamicDestination = true
 

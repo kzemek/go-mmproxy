@@ -1,5 +1,5 @@
 // Copyright 2019 Path Network, Inc. All rights reserved.
-// Copyright 2024 Konrad Zemek <konrad.zemek@gmail.com>
+// Copyright 2024-2025 Konrad Zemek <konrad.zemek@gmail.com>
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
@@ -150,9 +150,9 @@ func readRemoteAddrPROXYv1(ctrlBuf []byte) (proxyHeaderSrcAddr, proxyHeaderDstAd
 	return
 }
 
-var proxyv2header = []byte{0x0D, 0x0A, 0x0D, 0x0A, 0x00, 0x0D, 0x0A, 0x51, 0x55, 0x49, 0x54, 0x0A}
-
 func ReadRemoteAddr(buf []byte, protocol utils.Protocol) (proxyHeaderSrcAddr, proxyHeaderDstAddr netip.AddrPort, rest []byte, err error) {
+	proxyv2header := []byte{0x0D, 0x0A, 0x0D, 0x0A, 0x00, 0x0D, 0x0A, 0x51, 0x55, 0x49, 0x54, 0x0A}
+
 	if len(buf) >= 16 && bytes.Equal(buf[:12], proxyv2header) {
 		proxyHeaderSrcAddr, proxyHeaderDstAddr, rest, err = readRemoteAddrPROXYv2(buf, protocol)
 		if err != nil {

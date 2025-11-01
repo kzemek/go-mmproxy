@@ -25,6 +25,7 @@ docker run -d --name "$CONTAINER_NAME" \
 echo "[3/5] Discovering container IP..."
 CONTAINER_IP=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$CONTAINER_NAME")
 if [[ -z "$CONTAINER_IP" ]]; then
+  docker logs "$CONTAINER_NAME" >&2
   echo "Failed to determine container IP" >&2
   exit 1
 fi
@@ -38,10 +39,12 @@ for PORT in $(seq "$PORT_START" "$PORT_END"); do
   HDR=$'PROXY TCP4 127.0.0.1 127.0.0.1 12345 25578\r\n'
   PAYLOAD="$HDR$MSG\r\n"
   if ! RESPONSE=$(printf "%s" "$PAYLOAD" | timeout 3s nc -w 2 "$CONTAINER_IP" "$PORT" || true); then
+    docker logs "$CONTAINER_NAME" >&2
     echo "Port $PORT: failed to connect" >&2
     exit 1
   fi
   if [[ "$RESPONSE" != *"$MSG"* ]]; then
+    docker logs "$CONTAINER_NAME" >&2
     echo "Port $PORT: unexpected response: '$RESPONSE'" >&2
     exit 1
   fi

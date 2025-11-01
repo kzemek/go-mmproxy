@@ -1,5 +1,5 @@
 // Copyright 2019 Path Network, Inc. All rights reserved.
-// Copyright 2024 Konrad Zemek <konrad.zemek@gmail.com>
+// Copyright 2024-2025 Konrad Zemek <konrad.zemek@gmail.com>
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
@@ -17,9 +17,20 @@ import (
 type Protocol int
 
 const (
-	TCP Protocol = iota
-	UDP
+	TCP Protocol = 6
+	UDP Protocol = 17
 )
+
+func (p Protocol) String() string {
+	switch p {
+	case TCP:
+		return "TCP"
+	case UDP:
+		return "UDP"
+	default:
+		panic(fmt.Sprintf("invalid protocol %d", int(p)))
+	}
+}
 
 type Options struct {
 	Protocol           Protocol
@@ -32,6 +43,7 @@ type Options struct {
 	AllowedSubnets     []netip.Prefix
 	UDPCloseAfter      time.Duration
 	ListenTransparent  bool
+	Listeners          int
 }
 
 func CheckOriginAllowed(remoteIP netip.Addr, allowedSubnets []netip.Prefix) bool {

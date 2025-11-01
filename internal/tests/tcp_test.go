@@ -12,21 +12,25 @@ import (
 	"github.com/kzemek/go-mmproxy/internal/utils"
 )
 
-var tcpOpts = &utils.Options{
-	Protocol:       utils.TCP,
-	ListenAddr:     netip.MustParseAddrPort("0.0.0.0:12345"),
-	TargetAddr4:    netip.MustParseAddrPort("127.0.0.1:54321"),
-	TargetAddr6:    netip.MustParseAddrPort("[::1]:54321"),
-	Mark:           0,
-	AllowedSubnets: nil,
-	Verbose:        0,
+func tcpOpts() *utils.Options {
+	return &utils.Options{
+		Protocol:       utils.TCP,
+		ListenAddr:     netip.MustParseAddrPort("0.0.0.0:12345"),
+		TargetAddr4:    netip.MustParseAddrPort("127.0.0.1:54321"),
+		TargetAddr6:    netip.MustParseAddrPort("[::1]:54321"),
+		Mark:           0,
+		AllowedSubnets: nil,
+		Verbose:        0,
+	}
 }
 
 func TestListenTCP(t *testing.T) {
-	receivedData4 := runTargetServer(t, tcpOpts)
+	opts := tcpOpts()
 
-	conn := connectToGoMmproxy(t, tcpOpts)
-	sendProxyV1Message(t, conn, tcpOpts, "192.168.0.1:56324", "192.168.0.11:443", "moredata")
+	receivedData4 := runTargetServer(t, opts)
+
+	conn := connectToGoMmproxy(t, opts)
+	sendProxyV1Message(t, conn, opts, "192.168.0.1:56324", "192.168.0.11:443", "moredata")
 
 	result := <-receivedData4
 
@@ -40,9 +44,11 @@ func TestListenTCP(t *testing.T) {
 }
 
 func TestListenTCP_unknown(t *testing.T) {
-	receivedData4 := runTargetServer(t, tcpOpts)
+	opts := tcpOpts()
 
-	conn := connectToGoMmproxy(t, tcpOpts)
+	receivedData4 := runTargetServer(t, opts)
+
+	conn := connectToGoMmproxy(t, opts)
 	conn.Write([]byte("PROXY UNKNOWN\r\nmoredata"))
 
 	result := <-receivedData4
@@ -57,10 +63,12 @@ func TestListenTCP_unknown(t *testing.T) {
 }
 
 func TestListenTCP_proxyV2(t *testing.T) {
-	receivedData4 := runTargetServer(t, tcpOpts)
+	opts := tcpOpts()
 
-	conn := connectToGoMmproxy(t, tcpOpts)
-	sendProxyV2Message(t, conn, tcpOpts, "192.168.0.1:56324", "192.168.0.11:443", "moredata")
+	receivedData4 := runTargetServer(t, opts)
+
+	conn := connectToGoMmproxy(t, opts)
+	sendProxyV2Message(t, conn, opts, "192.168.0.1:56324", "192.168.0.11:443", "moredata")
 
 	result := <-receivedData4
 
@@ -74,18 +82,18 @@ func TestListenTCP_proxyV2(t *testing.T) {
 }
 
 func TestListenTCP_DynamicDestination(t *testing.T) {
-	opts := *tcpOpts
+	opts := tcpOpts()
 	opts.ListenAddr = netip.MustParseAddrPort("0.0.0.0:12350")
 	opts.DynamicDestination = true
 
-	runGoMmproxy(&opts)
+	runGoMmproxy(opts)
 
 	// connect to a different port than the one in TargetAddr4
 	proxyTargetAddr := netip.MustParseAddrPort("127.0.0.1:55443")
 	receivedData4 := runTcpTargetServer(t, proxyTargetAddr)
 
-	conn := connectToGoMmproxy(t, &opts)
-	sendProxyV1Message(t, conn, &opts, "192.168.0.1:56324", proxyTargetAddr.String(), "moredata")
+	conn := connectToGoMmproxy(t, opts)
+	sendProxyV1Message(t, conn, opts, "192.168.0.1:56324", proxyTargetAddr.String(), "moredata")
 
 	result := <-receivedData4
 
@@ -99,10 +107,12 @@ func TestListenTCP_DynamicDestination(t *testing.T) {
 }
 
 func TestListenTCP_HalfClose(t *testing.T) {
-	runTargetServer(t, tcpOpts)
+	opts := tcpOpts()
 
-	conn := connectToGoMmproxy(t, tcpOpts)
-	sendProxyV2Message(t, conn, tcpOpts, "192.168.0.1:56324", "192.168.0.11:443", "moredata")
+	runTargetServer(t, opts)
+
+	conn := connectToGoMmproxy(t, opts)
+	sendProxyV2Message(t, conn, opts, "192.168.0.1:56324", "192.168.0.11:443", "moredata")
 
 	response := readData(t, conn)
 	if got, want := response, "response: moredata"; got != want {

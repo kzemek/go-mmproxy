@@ -1,5 +1,5 @@
 // Copyright 2019 Path Network, Inc. All rights reserved.
-// Copyright 2024 Konrad Zemek <konrad.zemek@gmail.com>
+// Copyright 2024-2025 Konrad Zemek <konrad.zemek@gmail.com>
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
@@ -9,6 +9,7 @@ import (
 	"bufio"
 	"context"
 	"flag"
+	"fmt"
 	"log/slog"
 	"net"
 	"net/netip"
@@ -18,22 +19,109 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/kzemek/go-mmproxy/internal/buffers"
 	"github.com/kzemek/go-mmproxy/internal/tcp"
 	"github.com/kzemek/go-mmproxy/internal/udp"
 	"github.com/kzemek/go-mmproxy/internal/utils"
 )
 
-var protocolStr string
-var listenAddrStr string
-var targetAddr4Str string
-var targetAddr6Str string
-var allowedSubnetsPath string
-var udpCloseAfterInt int
-var listeners int
+func listen(ctx context.Context, listenerNum int, wg *sync.WaitGroup, opts *utils.Options, buffers buffers.BufferPool, parentLogger *slog.Logger) {
+	defer wg.Done()
 
-var opts utils.Options
+	logger := parentLogger.With(slog.Int("listenerNum", listenerNum),
+		slog.String("protocol", opts.Protocol.String()), slog.String("listenAddr", opts.ListenAddr.String()))
 
-func init() {
+	listenConfig := net.ListenConfig{}
+	listenConfig.Control = func(network, address string, c syscall.RawConn) error {
+		return c.Control(func(fd uintptr) {
+			if opts.ListenTransparent {
+				if err := syscall.SetsockoptInt(int(fd), syscall.IPPROTO_IP, syscall.IP_TRANSPARENT, 1); err != nil {
+					logger.Warn("failed to set IP_TRANSPARENT on listen port", slog.String("error", err.Error()))
+				}
+			}
+
+			if opts.Listeners > 1 {
+				soReusePort := 15
+				if err := syscall.SetsockoptInt(int(fd), syscall.SOL_SOCKET, soReusePort, 1); err != nil {
+					logger.Warn("failed to set SO_REUSEPORT - only one listener setup will succeed", slog.String("error", err.Error()))
+				}
+			}
+		})
+	}
+
+	if err := doListen(ctx, &listenConfig, opts, buffers, logger); err != nil {
+		logger.Error("lister error", slog.Any("error", err))
+	}
+}
+
+func doListen(ctx context.Context, listenConfig *net.ListenConfig, opts *utils.Options, buffers buffers.BufferPool, logger *slog.Logger) error {
+	switch opts.Protocol {
+	case utils.TCP:
+		return doListenTCP(ctx, listenConfig, opts, buffers, logger)
+	case utils.UDP:
+		return doListenUDP(ctx, listenConfig, opts, buffers, logger)
+	default:
+		panic(fmt.Sprintf("invalid protocol %d", opts.Protocol))
+	}
+}
+
+func doListenTCP(ctx context.Context, listenConfig *net.ListenConfig, opts *utils.Options, buffers buffers.BufferPool, logger *slog.Logger) error {
+	ln, err := tcp.Listen(ctx, listenConfig, opts)
+	if err != nil {
+		return err
+	}
+	defer ln.Close()
+	logger.Info("listening")
+	return tcp.AcceptLoop(ln, opts, buffers, logger)
+}
+
+func doListenUDP(ctx context.Context, listenConfig *net.ListenConfig, opts *utils.Options, buffers buffers.BufferPool, logger *slog.Logger) error {
+	ln, err := udp.Listen(ctx, listenConfig, opts)
+	if err != nil {
+		return err
+	}
+	defer ln.Close()
+	logger.Info("listening")
+	return udp.AcceptLoop(ln, opts, buffers, logger)
+}
+
+func loadAllowedSubnets(allowedSubnetsPath string) ([]netip.Prefix, error) {
+	file, err := os.Open(allowedSubnetsPath)
+	if err != nil {
+		return nil, err
+	}
+
+	defer func() { _ = file.Close() }()
+
+	allowedSubnets := make([]netip.Prefix, 0)
+
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		splitText := strings.SplitN(scanner.Text(), "#", 2)
+		text := strings.TrimSpace(splitText[0])
+		if text == "" {
+			continue
+		}
+		ipNet, err := netip.ParsePrefix(text)
+		if err != nil {
+			return nil, err
+		}
+		allowedSubnets = append(allowedSubnets, ipNet)
+	}
+
+	return allowedSubnets, nil
+}
+
+func parseOptions() (*utils.Options, error) {
+	var protocolStr string
+	var listenAddrStr string
+	var targetAddr4Str string
+	var targetAddr6Str string
+	var allowedSubnetsPath string
+	var udpCloseAfterInt int
+
+	opts := &utils.Options{}
+
 	flag.StringVar(&protocolStr, "p", "tcp", "Protocol that will be proxied: tcp, udp")
 	flag.StringVar(&listenAddrStr, "l", "0.0.0.0:8443", "Address the proxy listens on")
 	flag.StringVar(&targetAddr4Str, "4", "127.0.0.1:443", "Address to which IPv4 traffic will be forwarded to")
@@ -45,170 +133,96 @@ func init() {
 2 - log all state changes of individual connections`)
 	flag.StringVar(&allowedSubnetsPath, "allowed-subnets", "",
 		"Path to a file that contains allowed subnets of the proxy servers")
-	flag.IntVar(&listeners, "listeners", 1,
+	flag.IntVar(&opts.Listeners, "listeners", 1,
 		"Number of listener sockets that will be opened for the listen address (Linux 3.9+)")
 	flag.IntVar(&udpCloseAfterInt, "close-after", 60, "Number of seconds after which UDP socket will be cleaned up on inactivity")
 	flag.BoolVar(&opts.ListenTransparent, "listen-transparent", false, "Set IP_TRANSPARENT on the listen ports")
-}
 
-func listen(ctx context.Context, listenerNum int, parentLogger *slog.Logger, wg *sync.WaitGroup) {
-	defer wg.Done()
-
-	logger := parentLogger.With(slog.Int("listenerNum", listenerNum),
-		slog.String("protocol", protocolStr), slog.String("listenAddr", opts.ListenAddr.String()))
-
-	listenConfig := net.ListenConfig{}
-	listenConfig.Control = func(network, address string, c syscall.RawConn) error {
-		return c.Control(func(fd uintptr) {
-			if opts.ListenTransparent {
-				if err := syscall.SetsockoptInt(int(fd), syscall.IPPROTO_IP, syscall.IP_TRANSPARENT, 1); err != nil {
-					logger.Warn("failed to set IP_TRANSPARENT on listen port", slog.String("error", err.Error()))
-				}
-			}
-
-			if listeners > 1 {
-				soReusePort := 15
-				if err := syscall.SetsockoptInt(int(fd), syscall.SOL_SOCKET, soReusePort, 1); err != nil {
-					logger.Warn("failed to set SO_REUSEPORT - only one listener setup will succeed", slog.String("error", err.Error()))
-				}
-			}
-		})
-	}
-
-	if err := doListen(ctx, &listenConfig, logger); err != nil {
-		logger.Error("lister error", slog.Any("error", err))
-	}
-}
-
-func doListen(ctx context.Context, listenConfig *net.ListenConfig, logger *slog.Logger) error {
-	if opts.Protocol == utils.TCP {
-		return doListenTCP(ctx, listenConfig, logger)
-	} else {
-		return doListenUDP(ctx, listenConfig, logger)
-	}
-}
-
-func doListenTCP(ctx context.Context, listenConfig *net.ListenConfig, logger *slog.Logger) error {
-	ln, err := tcp.Listen(ctx, listenConfig, &opts)
-	if err != nil {
-		return err
-	}
-	defer ln.Close()
-	logger.Info("listening")
-	return tcp.AcceptLoop(ln, &opts, logger)
-}
-
-func doListenUDP(ctx context.Context, listenConfig *net.ListenConfig, logger *slog.Logger) error {
-	ln, err := udp.Listen(ctx, listenConfig, &opts)
-	if err != nil {
-		return err
-	}
-	defer ln.Close()
-	logger.Info("listening")
-	return udp.AcceptLoop(ln, &opts, logger)
-}
-
-func loadAllowedSubnets(logger *slog.Logger) error {
-	file, err := os.Open(allowedSubnetsPath)
-	if err != nil {
-		return err
-	}
-
-	defer file.Close()
-
-	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
-		splitText := strings.SplitN(scanner.Text(), "#", 2)
-		text := strings.TrimSpace(splitText[0])
-		if text == "" {
-			continue
-		}
-		ipNet, err := netip.ParsePrefix(text)
-		if err != nil {
-			return err
-		}
-		opts.AllowedSubnets = append(opts.AllowedSubnets, ipNet)
-		logger.Info("allowed subnet", slog.String("subnet", ipNet.String()))
-	}
-
-	return nil
-}
-
-func main() {
 	flag.Parse()
-	lvl := slog.LevelInfo
-	if opts.Verbose > 0 {
-		lvl = slog.LevelDebug
-	}
 
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: lvl}))
-
-	if allowedSubnetsPath != "" {
-		if err := loadAllowedSubnets(logger); err != nil {
-			logger.Error("failed to load allowed subnets file", "path", allowedSubnetsPath, "error", err)
-		}
-	}
-
-	if protocolStr == "tcp" {
+	switch protocolStr {
+	case "tcp":
 		opts.Protocol = utils.TCP
-	} else if protocolStr == "udp" {
+	case "udp":
 		opts.Protocol = utils.UDP
-	} else {
-		logger.Error("--protocol has to be one of udp, tcp", slog.String("protocol", protocolStr))
-		os.Exit(1)
+	default:
+		return nil, fmt.Errorf("--protocol has to be one of udp, tcp")
 	}
 
 	if opts.Mark < 0 {
-		logger.Error("--mark has to be >= 0", slog.Int("mark", opts.Mark))
-		os.Exit(1)
+		return nil, fmt.Errorf("--mark has to be >= 0")
 	}
 
-	if opts.Verbose < 0 {
-		logger.Error("-v has to be >= 0", slog.Int("verbose", opts.Verbose))
-		os.Exit(1)
+	if opts.Verbose < 0 || opts.Verbose > 2 {
+		return nil, fmt.Errorf("-v has to be between 0 and 2")
 	}
 
-	if listeners < 1 {
-		logger.Error("--listeners has to be >= 1")
-		os.Exit(1)
+	if opts.Listeners < 1 {
+		return nil, fmt.Errorf("--listeners has to be >= 1")
 	}
 
 	var err error
 	if opts.ListenAddr, err = utils.ParseHostPort(listenAddrStr, 0); err != nil {
-		logger.Error("listen address is malformed", "error", err)
-		os.Exit(1)
+		return nil, fmt.Errorf("-l listen address is malformed: %w", err)
 	}
 
 	if opts.TargetAddr4, err = utils.ParseHostPort(targetAddr4Str, 4); err != nil {
-		logger.Error("ipv4 target address is malformed", "error", err)
-		os.Exit(1)
+		return nil, fmt.Errorf("-4 ipv4 target address is malformed: %w", err)
 	}
 	if !opts.TargetAddr4.Addr().Is4() {
-		logger.Error("ipv4 target address is not IPv4")
-		os.Exit(1)
+		return nil, fmt.Errorf("-4 ipv4 target address is not IPv4")
 	}
 
 	if opts.TargetAddr6, err = utils.ParseHostPort(targetAddr6Str, 6); err != nil {
-		logger.Error("ipv6 target address is malformed", "error", err)
-		os.Exit(1)
+		return nil, fmt.Errorf("-6 ipv6 target address is malformed: %w", err)
 	}
 	if !opts.TargetAddr6.Addr().Is6() {
-		logger.Error("ipv6 target address is not IPv6")
-		os.Exit(1)
+		return nil, fmt.Errorf("-6 ipv6 target address is not IPv6")
 	}
 
 	if udpCloseAfterInt < 0 {
-		logger.Error("--close-after has to be >= 0", slog.Int("close-after", udpCloseAfterInt))
-		os.Exit(1)
+		return nil, fmt.Errorf("-close-after has to be >= 0")
 	}
 	opts.UDPCloseAfter = time.Duration(udpCloseAfterInt) * time.Second
 
+	if allowedSubnetsPath != "" {
+		opts.AllowedSubnets, err = loadAllowedSubnets(allowedSubnetsPath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load allowed subnets: %w", err)
+		}
+    }
+
+	return opts, nil
+}
+
+func initLogger(opts *utils.Options) *slog.Logger {
+	logLvl := slog.LevelInfo
+	if opts.Verbose > 0 {
+		logLvl = slog.LevelDebug
+	}
+	return slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: logLvl}))
+}
+
+func main() {
+	opts, err := parseOptions()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(1)
+	}
+
+	buffers := buffers.New()
+	logger := initLogger(opts)
+
+	for _, allowedSubnet := range opts.AllowedSubnets {
+		logger.Info("allowed subnet", slog.String("subnet", allowedSubnet.String()))
+	}
+
 	wg := sync.WaitGroup{}
-	ctxs := make([]context.Context, listeners)
+	ctxs := make([]context.Context, opts.Listeners)
 	for i := range ctxs {
 		ctxs[i] = context.Background()
 		wg.Add(1)
-		go listen(ctxs[i], i, logger, &wg)
+		go listen(ctxs[i], i, &wg, opts, buffers, logger)
 	}
 
 	wg.Wait()

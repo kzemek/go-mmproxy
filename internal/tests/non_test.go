@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kzemek/go-mmproxy/internal/buffers"
 	"github.com/kzemek/go-mmproxy/internal/tcp"
 	"github.com/kzemek/go-mmproxy/internal/udp"
 	"github.com/kzemek/go-mmproxy/internal/utils"
@@ -27,8 +28,8 @@ type listenResult struct {
 }
 
 func TestMain(m *testing.M) {
-	runGoMmproxy(tcpOpts)
-	runGoMmproxy(udpOpts)
+	runGoMmproxy(tcpOpts())
+	runGoMmproxy(udpOpts())
 	os.Exit(m.Run())
 }
 
@@ -124,11 +125,13 @@ func runGoMmproxy(opts *utils.Options) {
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: lvl}))
 
+	buffers := buffers.New()
+
 	go func() {
 		if opts.Protocol == utils.TCP {
-			tcp.AcceptLoop(ln.(*net.TCPListener), opts, logger)
+			tcp.AcceptLoop(ln.(*net.TCPListener), opts, buffers, logger)
 		} else {
-			udp.AcceptLoop(ln.(*net.UDPConn), opts, logger)
+			udp.AcceptLoop(ln.(*net.UDPConn), opts, buffers, logger)
 		}
 		panic("AcceptLoop returned")
 	}()

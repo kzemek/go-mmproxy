@@ -89,6 +89,7 @@ func doListenUDP(ctx context.Context, listenConfig *net.ListenConfig, config uti
 }
 
 func loadAllowedSubnets(allowedSubnetsPath string) ([]netip.Prefix, error) {
+	//gosec:disable G304 -- allowedSubnetsPath is intended to be controlled by the user
 	file, err := os.Open(allowedSubnetsPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open allowed subnets file: %w", err)

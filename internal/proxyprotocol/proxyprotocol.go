@@ -138,18 +138,20 @@ func readRemoteAddrPROXYv1(ctrlBuf []byte) (*proxyHeader, error) {
 	}
 
 	var src, dst string
-	var sport, dport int
-	numItemsParsed, err = fmt.Sscanf(str, "PROXY %s %s %s %d %d", &headerProtocol, &src, &dst, &sport, &dport)
+	var sportInt, dportInt int
+	numItemsParsed, err = fmt.Sscanf(str, "PROXY %s %s %s %d %d", &headerProtocol, &src, &dst, &sportInt, &dportInt)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrInvalidFormat, err)
 	}
 	if numItemsParsed != 5 {
 		return nil, ErrInvalidFormat
 	}
-	if sport <= 0 || sport > 65535 {
+	sport, ok := convertPort(sportInt)
+	if !ok {
 		return nil, fmt.Errorf("%w %d", ErrInvalidSourcePort, sport)
 	}
-	if dport <= 0 || dport > 65535 {
+	dport, ok := convertPort(dportInt)
+	if !ok {
 		return nil, fmt.Errorf("%w %d", ErrInvalidDestinationPort, dport)
 	}
 	srcIP, err := netip.ParseAddr(src)
@@ -162,8 +164,8 @@ func readRemoteAddrPROXYv1(ctrlBuf []byte) (*proxyHeader, error) {
 	}
 
 	return &proxyHeader{
-		SrcAddr:      netip.AddrPortFrom(srcIP, uint16(sport)),
-		DstAddr:      netip.AddrPortFrom(dstIP, uint16(dport)),
+		SrcAddr:      netip.AddrPortFrom(srcIP, sport),
+		DstAddr:      netip.AddrPortFrom(dstIP, dport),
 		TrailingData: ctrlBuf[idx+2:],
 	}, nil
 }
@@ -189,4 +191,11 @@ func ReadRemoteAddr(buf []byte, protocol utils.Protocol) (*proxyHeader, error) {
 	}
 
 	return nil, fmt.Errorf("%w: %w", ErrProxyProtocol, ErrProxyProtocolMissing)
+}
+
+func convertPort(port int) (uint16, bool) {
+	if port <= 0 || port > 65535 {
+		return 0, false
+	}
+	return uint16(port), true
 }

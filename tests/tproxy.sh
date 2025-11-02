@@ -15,7 +15,7 @@ cleanup() {
 trap cleanup EXIT
 
 echo "[1/5] Building test image..."
-docker build -t "$IMAGE_NAME" -f internal/tests/tproxy/Dockerfile .
+docker build -t "$IMAGE_NAME" -f tests/tproxy/Dockerfile .
 
 echo "[2/5] Starting container..."
 docker run -d --name "$CONTAINER_NAME" \

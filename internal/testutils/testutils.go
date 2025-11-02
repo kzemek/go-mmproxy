@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-package tests
+package testutils
 
 import (
 	"context"
@@ -22,18 +22,12 @@ import (
 	"github.com/kzemek/go-mmproxy/internal/utils"
 )
 
-type listenResult struct {
-	message string
-	saddr   netip.AddrPort
+type ListenResult struct {
+	Message string
+	Saddr   netip.AddrPort
 }
 
-func TestMain(m *testing.M) {
-	runGoMmproxy(tcpOpts())
-	runGoMmproxy(udpOpts())
-	os.Exit(m.Run())
-}
-
-func connectToGoMmproxy(t *testing.T, opts *utils.Options) net.Conn {
+func ConnectToGoMmproxy(t *testing.T, opts *utils.Options) net.Conn {
 	t.Helper()
 
 	protocol := "tcp"
@@ -49,7 +43,7 @@ func connectToGoMmproxy(t *testing.T, opts *utils.Options) net.Conn {
 	return conn
 }
 
-func sendProxyV1Message(t *testing.T, conn net.Conn, opts *utils.Options,
+func SendProxyV1Message(t *testing.T, conn net.Conn, opts *utils.Options,
 	proxiedClientAddr string, proxiedServerAddr string, message string) {
 	t.Helper()
 
@@ -70,7 +64,7 @@ func sendProxyV1Message(t *testing.T, conn net.Conn, opts *utils.Options,
 	}
 }
 
-func sendProxyV2Message(t *testing.T, conn net.Conn, opts *utils.Options,
+func SendProxyV2Message(t *testing.T, conn net.Conn, opts *utils.Options,
 	proxiedClientAddr string, proxiedServerAddr string, message string) {
 	t.Helper()
 
@@ -100,7 +94,7 @@ func sendProxyV2Message(t *testing.T, conn net.Conn, opts *utils.Options,
 	}
 }
 
-func readData(t *testing.T, conn net.Conn) string {
+func ReadData(t *testing.T, conn net.Conn) string {
 	t.Helper()
 
 	buf := make([]byte, 1024)
@@ -112,7 +106,7 @@ func readData(t *testing.T, conn net.Conn) string {
 	return string(buf[:n])
 }
 
-func runGoMmproxy(opts *utils.Options) {
+func RunGoMmproxy(opts *utils.Options) {
 	lvl := slog.LevelInfo
 	if opts.Verbose > 0 {
 		lvl = slog.LevelDebug
@@ -147,20 +141,20 @@ func runGoMmproxy(opts *utils.Options) {
 	}()
 }
 
-func runTargetServer(t *testing.T, opts *utils.Options) <-chan listenResult {
+func RunTargetServer(t *testing.T, opts *utils.Options) <-chan ListenResult {
 	t.Helper()
 
 	if opts.Protocol == utils.TCP {
-		return runTcpTargetServer(t, opts.TargetAddr4)
+		return RunTcpTargetServer(t, opts.TargetAddr4)
 	} else {
-		return runUdpTargetServer(t, opts.TargetAddr4)
+		return RunUdpTargetServer(t, opts.TargetAddr4)
 	}
 }
 
-func runTcpTargetServer(t *testing.T, targetAddr4 netip.AddrPort) <-chan listenResult {
+func RunTcpTargetServer(t *testing.T, targetAddr4 netip.AddrPort) <-chan ListenResult {
 	t.Helper()
 
-	receivedData := make(chan listenResult, 10)
+	receivedData := make(chan ListenResult, 10)
 
 	server, err := net.Listen("tcp", targetAddr4.String())
 	if err != nil {
@@ -173,7 +167,7 @@ func runTcpTargetServer(t *testing.T, targetAddr4 netip.AddrPort) <-chan listenR
 	return receivedData
 }
 
-func tcpTargetServerProcess(t *testing.T, server net.Listener, receivedData chan<- listenResult) {
+func tcpTargetServerProcess(t *testing.T, server net.Listener, receivedData chan<- ListenResult) {
 	t.Helper()
 
 	conn, err := server.Accept()
@@ -202,17 +196,17 @@ func tcpTargetServerProcess(t *testing.T, server net.Listener, receivedData chan
 			break
 		}
 
-		receivedData <- listenResult{
-			message: message,
-			saddr:   netip.MustParseAddrPort(conn.RemoteAddr().String()),
+		receivedData <- ListenResult{
+			Message: message,
+			Saddr:   netip.MustParseAddrPort(conn.RemoteAddr().String()),
 		}
 	}
 }
 
-func runUdpTargetServer(t *testing.T, targetAddr4 netip.AddrPort) <-chan listenResult {
+func RunUdpTargetServer(t *testing.T, targetAddr4 netip.AddrPort) <-chan ListenResult {
 	t.Helper()
 
-	receivedData := make(chan listenResult, 10)
+	receivedData := make(chan ListenResult, 10)
 
 	server, err := net.ListenPacket("udp", targetAddr4.String())
 	if err != nil {
@@ -225,7 +219,7 @@ func runUdpTargetServer(t *testing.T, targetAddr4 netip.AddrPort) <-chan listenR
 	return receivedData
 }
 
-func udpTargetServerProcess(t *testing.T, server net.PacketConn, receivedData chan<- listenResult) {
+func udpTargetServerProcess(t *testing.T, server net.PacketConn, receivedData chan<- ListenResult) {
 	t.Helper()
 
 	buf := make([]byte, 1024)
@@ -242,9 +236,9 @@ func udpTargetServerProcess(t *testing.T, server net.PacketConn, receivedData ch
 
 		message := string(buf[:numBytesRead])
 
-		receivedData <- listenResult{
-			message: message,
-			saddr:   netip.MustParseAddrPort(addr.String()),
+		receivedData <- ListenResult{
+			Message: message,
+			Saddr:   netip.MustParseAddrPort(addr.String()),
 		}
 	}
 }

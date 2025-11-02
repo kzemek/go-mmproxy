@@ -2,12 +2,14 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-package tests
+package udp_test
 
 import (
 	"net/netip"
+	"os"
 	"testing"
 
+	"github.com/kzemek/go-mmproxy/internal/testutils"
 	"github.com/kzemek/go-mmproxy/internal/utils"
 )
 
@@ -23,21 +25,25 @@ func udpOpts() *utils.Options {
 	}
 }
 
+func TestMain(m *testing.M) {
+	testutils.RunGoMmproxy(udpOpts())
+	os.Exit(m.Run())
+}
 func TestListenUDP(t *testing.T) {
 	opts := udpOpts()
 
-	receivedData4 := runUdpTargetServer(t, opts.TargetAddr4)
+	receivedData4 := testutils.RunTargetServer(t, opts)
 
-	conn := connectToGoMmproxy(t, opts)
-	sendProxyV2Message(t, conn, opts, "192.168.0.1:56324", "192.168.0.11:443", "moredata")
+	conn := testutils.ConnectToGoMmproxy(t, opts)
+	testutils.SendProxyV2Message(t, conn, opts, "192.168.0.1:56324", "192.168.0.11:443", "moredata")
 
 	result := <-receivedData4
 
-	if got, want := result.message, "moredata"; got != want {
+	if got, want := result.Message, "moredata"; got != want {
 		t.Errorf("result.message=%s, want=%s", got, want)
 	}
 
-	if got, want := result.saddr.String(), "192.168.0.1:56324"; got != want {
+	if got, want := result.Saddr.String(), "192.168.0.1:56324"; got != want {
 		t.Errorf("result.saddr.String()=%s, want=%s", got, want)
 	}
 }
@@ -48,22 +54,22 @@ func TestListenUDP_DynamicDestination(t *testing.T) {
 	opts.ListenAddr = netip.MustParseAddrPort("0.0.0.0:12348")
 	opts.DynamicDestination = true
 
-	runGoMmproxy(opts)
+	testutils.RunGoMmproxy(opts)
 
 	// connect to a different port than the one in TargetAddr4
 	proxyTargetAddr := netip.MustParseAddrPort("127.0.0.1:55443")
-	receivedData4 := runUdpTargetServer(t, proxyTargetAddr)
+	receivedData4 := testutils.RunUdpTargetServer(t, proxyTargetAddr)
 
-	conn := connectToGoMmproxy(t, opts)
-	sendProxyV2Message(t, conn, opts, "192.168.0.1:56324", proxyTargetAddr.String(), "moredata")
+	conn := testutils.ConnectToGoMmproxy(t, opts)
+	testutils.SendProxyV2Message(t, conn, opts, "192.168.0.1:56324", proxyTargetAddr.String(), "moredata")
 
 	result := <-receivedData4
 
-	if got, want := result.message, "moredata"; got != want {
+	if got, want := result.Message, "moredata"; got != want {
 		t.Errorf("result.message=%s, want=%s", got, want)
 	}
 
-	if got, want := result.saddr.String(), "192.168.0.1:56324"; got != want {
+	if got, want := result.Saddr.String(), "192.168.0.1:56324"; got != want {
 		t.Errorf("result.saddr.String()=%s, want=%s", got, want)
 	}
 }

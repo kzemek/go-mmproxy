@@ -39,4 +39,4 @@ jobs:
           sudo apt-get install -y netcat-openbsd
 
       - name: TPROXY integration test
-        run: bash internal/tests/test_tproxy.sh
+        run: bash tests/tproxy.sh

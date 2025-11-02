@@ -20,7 +20,7 @@ import (
 	"github.com/kzemek/go-mmproxy/internal/utils"
 )
 
-type connection struct {
+type connectionInfo struct {
 	lastActivity       *int64
 	proxyHeaderSrcAddr netip.AddrPort
 	frontendRemoteAddr netip.AddrPort
@@ -28,27 +28,27 @@ type connection struct {
 	logger             *slog.Logger
 }
 
-func closeAfterInactivity(conn *connection, closeAfter time.Duration, socketClosures chan<- netip.AddrPort) {
+func closeAfterInactivity(connInfo *connectionInfo, closeAfter time.Duration, socketClosures chan<- netip.AddrPort) {
 	for {
-		lastActivity := atomic.LoadInt64(conn.lastActivity)
+		lastActivity := atomic.LoadInt64(connInfo.lastActivity)
 		<-time.After(closeAfter)
-		if atomic.LoadInt64(conn.lastActivity) == lastActivity {
+		if atomic.LoadInt64(connInfo.lastActivity) == lastActivity {
 			break
 		}
 	}
 
-	err := conn.backendConn.Close()
+	err := connInfo.backendConn.Close()
 	if err != nil {
-		conn.logger.Error("failed to close backend socket", slog.Any("error", err))
+		connInfo.logger.Error("failed to close backend socket", slog.Any("error", err))
 	}
 
-	socketClosures <- conn.proxyHeaderSrcAddr
+	socketClosures <- connInfo.proxyHeaderSrcAddr
 }
 
-func copyFromBackend(frontendConn net.PacketConn, conn *connection, config utils.Config) {
-	rawConn, err := conn.backendConn.SyscallConn()
+func copyFromBackend(frontendConn net.PacketConn, connInfo *connectionInfo, config utils.Config) {
+	rawConn, err := connInfo.backendConn.SyscallConn()
 	if err != nil {
-		conn.logger.Error("failed to retrieve raw connection from backend socket",
+		connInfo.logger.Error("failed to retrieve raw connection from backend socket",
 			slog.Any("error", err))
 
 		return
@@ -73,9 +73,9 @@ func copyFromBackend(frontendConn net.PacketConn, conn *connection, config utils
 				return true
 			}
 
-			atomic.AddInt64(conn.lastActivity, 1)
+			atomic.AddInt64(connInfo.lastActivity, 1)
 
-			if _, serr := frontendConn.WriteTo(buf[:n], net.UDPAddrFromAddrPort(conn.frontendRemoteAddr)); serr != nil {
+			if _, serr := frontendConn.WriteTo(buf[:n], net.UDPAddrFromAddrPort(connInfo.frontendRemoteAddr)); serr != nil {
 				syscallErr = serr
 				return true
 			}
@@ -87,17 +87,17 @@ func copyFromBackend(frontendConn net.PacketConn, conn *connection, config utils
 	}
 
 	if err != nil {
-		conn.logger.Debug("failed to read from backend", slog.Any("error", err))
+		connInfo.logger.Debug("failed to read from backend", slog.Any("error", err))
 	}
 }
 
 func getSocketFromMap(frontendConn net.PacketConn,
 	frontendRemoteAddr, proxyHeaderSrcAddr, proxyHeaderDstAddr netip.AddrPort,
-	connMap map[netip.AddrPort]*connection, socketClosures chan<- netip.AddrPort,
-	config utils.Config) (*connection, error) {
-	if conn := connMap[proxyHeaderSrcAddr]; conn != nil {
-		atomic.AddInt64(conn.lastActivity, 1)
-		return conn, nil
+	connMap map[netip.AddrPort]*connectionInfo, socketClosures chan<- netip.AddrPort,
+	config utils.Config) (*connectionInfo, error) {
+	if connInfo := connMap[proxyHeaderSrcAddr]; connInfo != nil {
+		atomic.AddInt64(connInfo.lastActivity, 1)
+		return connInfo, nil
 	}
 
 	targetAddr := config.Opts.TargetAddr6
@@ -130,18 +130,18 @@ func getSocketFromMap(frontendConn net.PacketConn,
 		return nil, fmt.Errorf("failed to connect to backend: %w", err)
 	}
 
-	udpConn := &connection{
+	connInfo := &connectionInfo{
 		backendConn:        conn.(*net.UDPConn),
 		logger:             config.Logger,
 		lastActivity:       new(int64),
 		proxyHeaderSrcAddr: proxyHeaderSrcAddr,
 		frontendRemoteAddr: frontendRemoteAddr}
 
-	go copyFromBackend(frontendConn, udpConn, config)
-	go closeAfterInactivity(udpConn, config.Opts.UDPCloseAfter, socketClosures)
+	go copyFromBackend(frontendConn, connInfo, config)
+	go closeAfterInactivity(connInfo, config.Opts.UDPCloseAfter, socketClosures)
 
-	connMap[proxyHeaderSrcAddr] = udpConn
-	return udpConn, nil
+	connMap[proxyHeaderSrcAddr] = connInfo
+	return connInfo, nil
 }
 
 func Listen(ctx context.Context, listenConfig *net.ListenConfig, config utils.Config) (*net.UDPConn, error) {
@@ -154,7 +154,7 @@ func Listen(ctx context.Context, listenConfig *net.ListenConfig, config utils.Co
 
 func AcceptLoop(ln *net.UDPConn, config utils.Config) error {
 	socketClosures := make(chan netip.AddrPort, 1024)
-	connectionMap := make(map[netip.AddrPort]*connection)
+	connectionMap := make(map[netip.AddrPort]*connectionInfo)
 
 	buffer := config.BufferPool.Get()
 	defer config.BufferPool.Put(buffer)
@@ -197,14 +197,14 @@ func AcceptLoop(ln *net.UDPConn, config utils.Config) error {
 			}
 		}
 
-		conn, err := getSocketFromMap(ln, frontendRemoteAddr, proxyHeaderSrcAddr, proxyHeaderDstAddr, connectionMap, socketClosures, config)
+		connInfo, err := getSocketFromMap(ln, frontendRemoteAddr, proxyHeaderSrcAddr, proxyHeaderDstAddr, connectionMap, socketClosures, config)
 		if err != nil {
 			continue
 		}
 
-		_, err = conn.backendConn.Write(restBytes)
+		_, err = connInfo.backendConn.Write(restBytes)
 		if err != nil {
-			conn.logger.Error("failed to write to backend socket", slog.Any("error", err))
+			connInfo.logger.Error("failed to write to backend socket", slog.Any("error", err))
 		}
 	}
 }

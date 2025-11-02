@@ -100,7 +100,7 @@ func readData(t *testing.T, conn net.Conn) string {
 	buf := make([]byte, 1024)
 	_ = conn.SetReadDeadline(time.Now().Add(1 * time.Second))
 	n, err := conn.Read(buf)
-	if err != nil && err != io.EOF {
+	if err != nil && errors.Is(err, io.EOF) {
 		t.Fatalf("Failed to read data: %v", err)
 	}
 	return string(buf[:n])
@@ -174,7 +174,7 @@ func tcpTargetServerProcess(t *testing.T, server net.Listener, receivedData chan
 
 	for {
 		n, err := conn.Read(buf)
-		if err != nil && err != io.EOF {
+		if err != nil && !errors.Is(err, io.EOF) {
 			t.Errorf("Failed to read data: %v", err)
 			return
 		}
@@ -186,7 +186,7 @@ func tcpTargetServerProcess(t *testing.T, server net.Listener, receivedData chan
 			return
 		}
 
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			break
 		}
 

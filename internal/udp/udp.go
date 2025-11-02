@@ -127,7 +127,7 @@ func getSocketFromMap(frontendConn net.PacketConn,
 	conn, err := dialer.Dial("udp", targetAddr.String())
 	if err != nil {
 		config.Logger.Debug("failed to connect to backend", slog.Any("error", err))
-		return nil, err
+		return nil, fmt.Errorf("failed to connect to backend: %w", err)
 	}
 
 	udpConn := &connection{

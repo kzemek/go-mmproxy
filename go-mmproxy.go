@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/kzemek/go-mmproxy/internal/buffers"
+	"github.com/kzemek/go-mmproxy/internal/setsockopt"
 	"github.com/kzemek/go-mmproxy/internal/tcp"
 	"github.com/kzemek/go-mmproxy/internal/udp"
 	"github.com/kzemek/go-mmproxy/internal/utils"
@@ -37,15 +38,14 @@ func listen(ctx context.Context, listenerNum int, wg *sync.WaitGroup, config uti
 	listenConfig.Control = func(network, address string, c syscall.RawConn) error {
 		return c.Control(func(fd uintptr) {
 			if config.Opts.ListenTransparent {
-				if err := syscall.SetsockoptInt(int(fd), syscall.IPPROTO_IP, syscall.IP_TRANSPARENT, 1); err != nil {
+				if err := setsockopt.IPTransparent(int(fd), true); err != nil {
 					config.Logger.Warn("failed to set IP_TRANSPARENT on listen port",
 						slog.String("error", err.Error()))
 				}
 			}
 
 			if config.Opts.Listeners > 1 {
-				soReusePort := 15
-				if err := syscall.SetsockoptInt(int(fd), syscall.SOL_SOCKET, soReusePort, 1); err != nil {
+				if err := setsockopt.ReusePort(int(fd), true); err != nil {
 					config.Logger.Warn("failed to set SO_REUSEPORT - only one listener setup will succeed",
 						slog.String("error", err.Error()))
 				}
@@ -93,7 +93,7 @@ func doListenUDP(ctx context.Context, listenConfig *net.ListenConfig, config uti
 func loadAllowedSubnets(allowedSubnetsPath string) ([]netip.Prefix, error) {
 	file, err := os.Open(allowedSubnetsPath)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to open allowed subnets file: %w", err)
 	}
 
 	defer func() { _ = file.Close() }()
@@ -109,7 +109,7 @@ func loadAllowedSubnets(allowedSubnetsPath string) ([]netip.Prefix, error) {
 		}
 		ipNet, err := netip.ParsePrefix(text)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("failed to parse allowed subnet `%s`: %w", text, err)
 		}
 		allowedSubnets = append(allowedSubnets, ipNet)
 	}
@@ -117,7 +117,7 @@ func loadAllowedSubnets(allowedSubnetsPath string) ([]netip.Prefix, error) {
 	return allowedSubnets, nil
 }
 
-func parseOptions() (*utils.Options, error) {
+func parseOptions() *utils.Options {
 	var protocolStr string
 	var listenAddrStr string
 	var targetAddr4Str string
@@ -151,53 +151,64 @@ func parseOptions() (*utils.Options, error) {
 	case "udp":
 		opts.Protocol = utils.UDP
 	default:
-		return nil, fmt.Errorf("--protocol has to be one of udp, tcp")
+		println("--protocol has to be one of udp, tcp")
+		os.Exit(1)
 	}
 
 	if opts.Mark < 0 {
-		return nil, fmt.Errorf("--mark has to be >= 0")
+		println("--mark has to be >= 0")
+		os.Exit(1)
 	}
 
 	if opts.Verbose < 0 || opts.Verbose > 2 {
-		return nil, fmt.Errorf("-v has to be between 0 and 2")
+		println("-v has to be between 0 and 2")
+		os.Exit(1)
 	}
 
 	if opts.Listeners < 1 {
-		return nil, fmt.Errorf("--listeners has to be >= 1")
+		println("--listeners has to be >= 1")
+		os.Exit(1)
 	}
 
 	var err error
 	if opts.ListenAddr, err = utils.ParseHostPort(listenAddrStr, 0); err != nil {
-		return nil, fmt.Errorf("-l listen address is malformed: %w", err)
+		println("-l listen address is malformed:", err)
+		os.Exit(1)
 	}
 
 	if opts.TargetAddr4, err = utils.ParseHostPort(targetAddr4Str, 4); err != nil {
-		return nil, fmt.Errorf("-4 ipv4 target address is malformed: %w", err)
+		println("-4 ipv4 target address is malformed:", err)
+		os.Exit(1)
 	}
 	if !opts.TargetAddr4.Addr().Is4() {
-		return nil, fmt.Errorf("-4 ipv4 target address is not IPv4")
+		println("-4 ipv4 target address is not IPv4")
+		os.Exit(1)
 	}
 
 	if opts.TargetAddr6, err = utils.ParseHostPort(targetAddr6Str, 6); err != nil {
-		return nil, fmt.Errorf("-6 ipv6 target address is malformed: %w", err)
+		println("-6 ipv6 target address is malformed:", err)
+		os.Exit(1)
 	}
 	if !opts.TargetAddr6.Addr().Is6() {
-		return nil, fmt.Errorf("-6 ipv6 target address is not IPv6")
+		println("-6 ipv6 target address is not IPv6")
+		os.Exit(1)
 	}
 
 	if udpCloseAfterInt < 0 {
-		return nil, fmt.Errorf("-close-after has to be >= 0")
+		println("-close-after has to be >= 0")
+		os.Exit(1)
 	}
 	opts.UDPCloseAfter = time.Duration(udpCloseAfterInt) * time.Second
 
 	if allowedSubnetsPath != "" {
 		opts.AllowedSubnets, err = loadAllowedSubnets(allowedSubnetsPath)
 		if err != nil {
-			return nil, fmt.Errorf("failed to load allowed subnets: %w", err)
+			println("failed to load allowed subnets:", err)
+			os.Exit(1)
 		}
     }
 
-	return opts, nil
+	return opts
 }
 
 func initLogger(opts *utils.Options) *slog.Logger {
@@ -209,11 +220,7 @@ func initLogger(opts *utils.Options) *slog.Logger {
 }
 
 func main() {
-	opts, err := parseOptions()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "error: %v\n", err)
-		os.Exit(1)
-	}
+	opts := parseOptions()
 
 	config := utils.Config{
 		Opts:       opts,

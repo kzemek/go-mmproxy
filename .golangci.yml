@@ -2,6 +2,16 @@ version: "2"
 linters:
   default: none
   enable:
+    - err113
     - errcheck
+    - errname
+    - errorlint
     - gochecknoglobals
     - gochecknoinits
+    - wrapcheck
+  disable:
+    - noinlineerr
+  settings:
+    wrapcheck:
+      ignore-package-globs:
+        - github.com/kzemek/go-mmproxy/*

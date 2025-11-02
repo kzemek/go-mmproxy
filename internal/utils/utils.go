@@ -6,6 +6,7 @@
 package utils
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -16,6 +17,7 @@ import (
 	"time"
 
 	"github.com/kzemek/go-mmproxy/internal/buffers"
+	"github.com/kzemek/go-mmproxy/internal/setsockopt"
 )
 
 type Protocol int
@@ -76,15 +78,21 @@ func (c *Config) LogDebugConn(msg string, vars ...any) {
 	}
 }
 
+// ParseHostPort errors
+var ErrParseHostPort = errors.New("failed to parse host and port")
+var ErrLookupIP = errors.New("failed to lookup IP addresses")
+var ErrNoIPAddressesFound = errors.New("no IP addresses found")
+var ErrFailedToParsePort = errors.New("failed to parse port")
+
 func ParseHostPort(hostport string, ipVersion int) (netip.AddrPort, error) {
 	host, portStr, err := net.SplitHostPort(hostport)
 	if err != nil {
-		return netip.AddrPort{}, fmt.Errorf("failed to parse host and port: %w", err)
+		return netip.AddrPort{}, fmt.Errorf("%w: %w", ErrParseHostPort, err)
 	}
 
 	ips, err := net.LookupIP(host)
 	if err != nil {
-		return netip.AddrPort{}, fmt.Errorf("failed to lookup IP addresses: %w", err)
+		return netip.AddrPort{}, fmt.Errorf("%w: %w", ErrLookupIP, err)
 	}
 
 	filteredIPs := make([]netip.Addr, 0, len(ips))
@@ -96,12 +104,12 @@ func ParseHostPort(hostport string, ipVersion int) (netip.AddrPort, error) {
 	}
 
 	if len(filteredIPs) == 0 {
-		return netip.AddrPort{}, fmt.Errorf("no IP addresses found")
+		return netip.AddrPort{}, ErrNoIPAddressesFound
 	}
 
 	port, err := strconv.ParseUint(portStr, 10, 16)
 	if err != nil {
-		return netip.AddrPort{}, fmt.Errorf("failed to parse port: %w", err)
+		return netip.AddrPort{}, fmt.Errorf("%w: %w", ErrFailedToParsePort, err)
 	}
 
 	return netip.AddrPortFrom(filteredIPs[0], uint16(port)), nil
@@ -110,58 +118,51 @@ func ParseHostPort(hostport string, ipVersion int) (netip.AddrPort, error) {
 func DialBackendControl(sport uint16, protocol Protocol, mark int) func(string, string, syscall.RawConn) error {
 	return func(network, address string, c syscall.RawConn) error {
 		var syscallErr error
-		err := c.Control(func(fd uintptr) {
-			if protocol == TCP {
-				syscallErr = syscall.SetsockoptInt(int(fd), syscall.IPPROTO_TCP, syscall.TCP_SYNCNT, 2)
-				if syscallErr != nil {
-					syscallErr = fmt.Errorf("setsockopt(IPPROTO_TCP, TCP_SYNCNT, 2): %w", syscallErr)
-					return
-				}
-			}
-
-			syscallErr = syscall.SetsockoptInt(int(fd), syscall.IPPROTO_IP, syscall.IP_TRANSPARENT, 1)
-			if syscallErr != nil {
-				syscallErr = fmt.Errorf("setsockopt(IPPROTO_IP, IP_TRANSPARENT, 1): %w", syscallErr)
-				return
-			}
-
-			syscallErr = syscall.SetsockoptInt(int(fd), syscall.SOL_SOCKET, syscall.SO_REUSEADDR, 1)
-			if syscallErr != nil {
-				syscallErr = fmt.Errorf("setsockopt(SOL_SOCKET, SO_REUSEADDR, 1): %w", syscallErr)
-				return
-			}
-
-			if sport == 0 {
-				ipBindAddressNoPort := 24
-				syscallErr = syscall.SetsockoptInt(int(fd), syscall.IPPROTO_IP, ipBindAddressNoPort, 1)
-				if syscallErr != nil {
-					syscallErr = fmt.Errorf("setsockopt(IPPROTO_IP, IP_BIND_ADDRESS_NO_PORT, 1): %w", syscallErr)
-					return
-				}
-			}
-
-			if mark != 0 {
-				syscallErr = syscall.SetsockoptInt(int(fd), syscall.SOL_SOCKET, syscall.SO_MARK, mark)
-				if syscallErr != nil {
-					syscallErr = fmt.Errorf("setsockopt(SOL_SOCK, SO_MARK, %d): %w", mark, syscallErr)
-					return
-				}
-			}
-
-			if network == "tcp6" || network == "udp6" {
-				syscallErr = syscall.SetsockoptInt(int(fd), syscall.IPPROTO_IPV6, syscall.IPV6_V6ONLY, 0)
-				if syscallErr != nil {
-					syscallErr = fmt.Errorf("setsockopt(IPPROTO_IPV6, IPV6_V6ONLY, 0): %w", syscallErr)
-					return
-				}
-			}
+		controlErr := c.Control(func(fd uintptr) {
+			syscallErr = doDialBackendControl(int(fd), protocol, network, sport, mark)
 		})
 
-		if err != nil {
-			return err
+		if controlErr != nil {
+			return fmt.Errorf("failed to control backend socket: %w", controlErr)
 		}
 		return syscallErr
 	}
+}
+
+func doDialBackendControl(fd int, protocol Protocol, network string, sport uint16, mark int) error {
+	if protocol == TCP {
+		if err := setsockopt.TCPSynCnt(fd, 2); err != nil {
+			return err
+		}
+	}
+
+	if err := setsockopt.IPTransparent(fd, true); err != nil {
+		return err
+	}
+
+	if err := setsockopt.ReuseAddr(fd, true); err != nil {
+		return err
+	}
+
+	if sport == 0 {
+		if err := setsockopt.IPBindAddressNoPort(fd, true); err != nil {
+			return err
+		}
+	}
+
+	if mark != 0 {
+		if err := setsockopt.SoMark(fd, mark); err != nil {
+			return err
+		}
+	}
+
+	if network == "tcp6" || network == "udp6" {
+		if err := setsockopt.IPv6V6Only(fd, false); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 func CloseWithLogOnError(closer io.Closer, logger *slog.Logger, what string) {

@@ -43,7 +43,7 @@ func connectToGoMmproxy(t *testing.T, opts *utils.Options) net.Conn {
 	if err != nil {
 		t.Fatalf("Failed to connect to server: %v", err)
 	}
-	t.Cleanup(func() { conn.Close() })
+	t.Cleanup(func() { _ = conn.Close() })
 	return conn
 }
 
@@ -98,7 +98,7 @@ func sendProxyV2Message(t *testing.T, conn net.Conn, opts *utils.Options,
 
 func readData(t *testing.T, conn net.Conn) string {
 	buf := make([]byte, 1024)
-	conn.SetReadDeadline(time.Now().Add(1 * time.Second))
+	_ = conn.SetReadDeadline(time.Now().Add(1 * time.Second))
 	n, err := conn.Read(buf)
 	if err != nil && err != io.EOF {
 		t.Fatalf("Failed to read data: %v", err)
@@ -133,9 +133,9 @@ func runGoMmproxy(opts *utils.Options) {
 
 	go func() {
 		if opts.Protocol == utils.TCP {
-			tcp.AcceptLoop(ln.(*net.TCPListener), config)
+			_ = tcp.AcceptLoop(ln.(*net.TCPListener), config)
 		} else {
-			udp.AcceptLoop(ln.(*net.UDPConn), config)
+			_ = udp.AcceptLoop(ln.(*net.UDPConn), config)
 		}
 		panic("AcceptLoop returned")
 	}()
@@ -156,7 +156,7 @@ func runTcpTargetServer(t *testing.T, targetAddr4 netip.AddrPort) <-chan listenR
 	if err != nil {
 		t.Fatalf("Failed to listen on server: %v", err)
 	}
-	t.Cleanup(func() { server.Close() })
+	t.Cleanup(func() { _ = server.Close() })
 
 	go tcpTargetServerProcess(t, server, receivedData)
 
@@ -204,7 +204,7 @@ func runUdpTargetServer(t *testing.T, targetAddr4 netip.AddrPort) <-chan listenR
 	if err != nil {
 		t.Fatalf("Failed to listen on server: %v", err)
 	}
-	t.Cleanup(func() { server.Close() })
+	t.Cleanup(func() { _ = server.Close() })
 
 	go udpTargetServerProcess(t, server, receivedData)
 

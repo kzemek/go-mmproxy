@@ -7,6 +7,7 @@ package utils
 
 import (
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"net/netip"
@@ -160,5 +161,12 @@ func DialBackendControl(sport uint16, protocol Protocol, mark int) func(string, 
 			return err
 		}
 		return syscallErr
+	}
+}
+
+func CloseWithLogOnError(closer io.Closer, logger *slog.Logger, what string) {
+	err := closer.Close()
+	if err != nil {
+		logger.Warn("failed to close "+what, slog.Any("error", err))
 	}
 }

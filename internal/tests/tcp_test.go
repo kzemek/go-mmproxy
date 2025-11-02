@@ -49,7 +49,7 @@ func TestListenTCP_unknown(t *testing.T) {
 	receivedData4 := runTargetServer(t, opts)
 
 	conn := connectToGoMmproxy(t, opts)
-	conn.Write([]byte("PROXY UNKNOWN\r\nmoredata"))
+	_, _ = conn.Write([]byte("PROXY UNKNOWN\r\nmoredata"))
 
 	result := <-receivedData4
 

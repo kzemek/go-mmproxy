@@ -74,7 +74,8 @@ func doListenTCP(ctx context.Context, listenConfig *net.ListenConfig, config uti
 	if err != nil {
 		return err
 	}
-	defer ln.Close()
+	defer utils.CloseWithLogOnError(ln, config.Logger, "listener")
+
 	config.Logger.Info("listening")
 	return tcp.AcceptLoop(ln, config)
 }
@@ -84,7 +85,7 @@ func doListenUDP(ctx context.Context, listenConfig *net.ListenConfig, config uti
 	if err != nil {
 		return err
 	}
-	defer ln.Close()
+	defer utils.CloseWithLogOnError(ln, config.Logger, "listener")
 	config.Logger.Info("listening")
 	return udp.AcceptLoop(ln, config)
 }

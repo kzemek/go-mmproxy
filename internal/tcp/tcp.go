@@ -20,13 +20,14 @@ import (
 func copyData(dst net.Conn, src net.Conn, ch chan<- error) {
 	_, err := io.Copy(dst, src)
 	if err == nil {
-		dst.(*net.TCPConn).CloseWrite()
+		ch <- dst.(*net.TCPConn).CloseWrite()
+	} else {
+		ch <- err
 	}
-	ch <- err
 }
 
 func handleConnection(frontendConn net.Conn, config utils.Config) {
-	defer frontendConn.Close()
+	defer utils.CloseWithLogOnError(frontendConn, config.Logger, "frontend connection")
 
 	frontendRemoteAddr := netip.MustParseAddrPort(frontendConn.RemoteAddr().String())
 
@@ -103,7 +104,7 @@ func handleConnection(frontendConn net.Conn, config utils.Config) {
 		return
 	}
 
-	defer backendConn.Close()
+	defer utils.CloseWithLogOnError(backendConn, config.Logger, "backend connection")
 	config.LogDebugConn("successfully established backend connection")
 
 	if err := frontendConn.(*net.TCPConn).SetNoDelay(true); err != nil {

@@ -36,7 +36,12 @@ func closeAfterInactivity(conn *connection, closeAfter time.Duration, socketClos
 			break
 		}
 	}
-	conn.backendConn.Close()
+
+	err := conn.backendConn.Close()
+	if err != nil {
+		conn.logger.Error("failed to close backend socket", slog.Any("error", err))
+	}
+
 	socketClosures <- conn.proxyHeaderSrcAddr
 }
 

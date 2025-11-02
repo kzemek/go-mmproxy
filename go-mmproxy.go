@@ -149,51 +149,51 @@ func parseOptions() *utils.Options {
 	case "udp":
 		opts.Protocol = utils.UDP
 	default:
-		println("--protocol has to be one of udp, tcp")
+		fmt.Fprintf(os.Stderr, "--protocol has to be one of udp, tcp")
 		os.Exit(1)
 	}
 
 	if opts.Mark < 0 {
-		println("--mark has to be >= 0")
+		fmt.Fprintf(os.Stderr, "--mark has to be >= 0")
 		os.Exit(1)
 	}
 
 	if opts.Verbose < 0 || opts.Verbose > 2 {
-		println("-v has to be between 0 and 2")
+		fmt.Fprintf(os.Stderr, "-v has to be between 0 and 2")
 		os.Exit(1)
 	}
 
 	if opts.Listeners < 1 {
-		println("--listeners has to be >= 1")
+		fmt.Fprintf(os.Stderr, "--listeners has to be >= 1")
 		os.Exit(1)
 	}
 
 	var err error
 	if opts.ListenAddr, err = utils.ParseHostPort(listenAddrStr, 0); err != nil {
-		println("-l listen address is malformed:", err)
+		fmt.Fprintf(os.Stderr, "-l listen address is malformed: %v", err)
 		os.Exit(1)
 	}
 
 	if opts.TargetAddr4, err = utils.ParseHostPort(targetAddr4Str, 4); err != nil {
-		println("-4 ipv4 target address is malformed:", err)
+		fmt.Fprintf(os.Stderr, "-4 ipv4 target address is malformed: %v", err)
 		os.Exit(1)
 	}
 	if !opts.TargetAddr4.Addr().Is4() {
-		println("-4 ipv4 target address is not IPv4")
+		fmt.Fprintf(os.Stderr, "-4 ipv4 target address is not IPv4")
 		os.Exit(1)
 	}
 
 	if opts.TargetAddr6, err = utils.ParseHostPort(targetAddr6Str, 6); err != nil {
-		println("-6 ipv6 target address is malformed:", err)
+		fmt.Fprintf(os.Stderr, "-6 ipv6 target address is malformed: %v", err)
 		os.Exit(1)
 	}
 	if !opts.TargetAddr6.Addr().Is6() {
-		println("-6 ipv6 target address is not IPv6")
+		fmt.Fprintf(os.Stderr, "-6 ipv6 target address is not IPv6")
 		os.Exit(1)
 	}
 
 	if udpCloseAfterInt < 0 {
-		println("-close-after has to be >= 0")
+		fmt.Fprintf(os.Stderr, "-close-after has to be >= 0")
 		os.Exit(1)
 	}
 	opts.UDPCloseAfter = time.Duration(udpCloseAfterInt) * time.Second
@@ -201,7 +201,7 @@ func parseOptions() *utils.Options {
 	if allowedSubnetsPath != "" {
 		opts.AllowedSubnets, err = loadAllowedSubnets(allowedSubnetsPath)
 		if err != nil {
-			println("failed to load allowed subnets:", err)
+			fmt.Fprintf(os.Stderr, "failed to load allowed subnets: %v", err)
 			os.Exit(1)
 		}
 	}

@@ -6,6 +6,7 @@ linters:
     - errcheck
     - errname
     - errorlint
+    - forbidigo
     - gochecknoglobals
     - gochecknoinits
     - testpackage

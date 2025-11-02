@@ -17,16 +17,16 @@ import (
 	"github.com/kzemek/go-mmproxy/internal/utils"
 )
 
-func copyData(dst net.Conn, src net.Conn, ch chan<- error) {
+func copyData(dst *net.TCPConn, src *net.TCPConn, ch chan<- error) {
 	_, err := io.Copy(dst, src)
 	if err == nil {
-		ch <- dst.(*net.TCPConn).CloseWrite()
+		ch <- dst.CloseWrite()
 	} else {
 		ch <- err
 	}
 }
 
-func handleConnection(frontendConn net.Conn, config utils.Config) {
+func handleConnection(frontendConn *net.TCPConn, config utils.Config) {
 	defer utils.CloseWithLogOnError(frontendConn, config.Logger, "frontend connection")
 
 	frontendRemoteAddr := netip.MustParseAddrPort(frontendConn.RemoteAddr().String())
@@ -95,7 +95,7 @@ func handleConnection(frontendConn net.Conn, config utils.Config) {
 		dialer.LocalAddr = net.TCPAddrFromAddrPort(proxyHeaderSrcAddr)
 		dialer.Control = utils.DialBackendControl(proxyHeaderSrcAddr.Port(), config.Opts.Protocol, config.Opts.Mark)
 	}
-	backendConn, err := dialer.Dial("tcp", targetAddr.String())
+	backendConnGeneric, err := dialer.Dial("tcp", targetAddr.String())
 	if err != nil {
 		config.Logger.Debug("failed to establish backend connection",
 			slog.Any("error", err),
@@ -104,10 +104,12 @@ func handleConnection(frontendConn net.Conn, config utils.Config) {
 		return
 	}
 
+	backendConn := backendConnGeneric.(*net.TCPConn)
+
 	defer utils.CloseWithLogOnError(backendConn, config.Logger, "backend connection")
 	config.LogDebugConn("successfully established backend connection")
 
-	if err := frontendConn.(*net.TCPConn).SetNoDelay(true); err != nil {
+	if err := frontendConn.SetNoDelay(true); err != nil {
 		config.Logger.Debug("failed to set nodelay on frontend connection",
 			slog.Any("error", err),
 			slog.Bool("dropConnection", true))
@@ -115,7 +117,7 @@ func handleConnection(frontendConn net.Conn, config utils.Config) {
 		config.LogDebugConn("successfully set NoDelay on frontend connection")
 	}
 
-	if err := backendConn.(*net.TCPConn).SetNoDelay(true); err != nil {
+	if err := backendConn.SetNoDelay(true); err != nil {
 		config.Logger.Debug("failed to set nodelay on backend connection",
 			slog.Any("error", err),
 			slog.Bool("dropConnection", true))
@@ -182,6 +184,6 @@ func AcceptLoop(ln *net.TCPListener, config utils.Config) error {
 			return fmt.Errorf("failed to accept new connection: %w", err)
 		}
 
-		go handleConnection(conn, config)
+		go handleConnection(conn.(*net.TCPConn), config)
 	}
 }

@@ -34,6 +34,8 @@ func TestMain(m *testing.M) {
 }
 
 func connectToGoMmproxy(t *testing.T, opts *utils.Options) net.Conn {
+	t.Helper()
+
 	protocol := "tcp"
 	if opts.Protocol == utils.UDP {
 		protocol = "udp"
@@ -49,6 +51,7 @@ func connectToGoMmproxy(t *testing.T, opts *utils.Options) net.Conn {
 
 func sendProxyV1Message(t *testing.T, conn net.Conn, opts *utils.Options,
 	proxiedClientAddr string, proxiedServerAddr string, message string) {
+	t.Helper()
 
 	proxiedClientAddrPort := netip.MustParseAddrPort(proxiedClientAddr)
 	proxiedServerAddrPort := netip.MustParseAddrPort(proxiedServerAddr)
@@ -69,6 +72,7 @@ func sendProxyV1Message(t *testing.T, conn net.Conn, opts *utils.Options,
 
 func sendProxyV2Message(t *testing.T, conn net.Conn, opts *utils.Options,
 	proxiedClientAddr string, proxiedServerAddr string, message string) {
+	t.Helper()
 
 	proxiedClientAddrPort := netip.MustParseAddrPort(proxiedClientAddr)
 	proxiedServerAddrPort := netip.MustParseAddrPort(proxiedServerAddr)
@@ -97,6 +101,8 @@ func sendProxyV2Message(t *testing.T, conn net.Conn, opts *utils.Options,
 }
 
 func readData(t *testing.T, conn net.Conn) string {
+	t.Helper()
+
 	buf := make([]byte, 1024)
 	_ = conn.SetReadDeadline(time.Now().Add(1 * time.Second))
 	n, err := conn.Read(buf)
@@ -142,6 +148,8 @@ func runGoMmproxy(opts *utils.Options) {
 }
 
 func runTargetServer(t *testing.T, opts *utils.Options) <-chan listenResult {
+	t.Helper()
+
 	if opts.Protocol == utils.TCP {
 		return runTcpTargetServer(t, opts.TargetAddr4)
 	} else {
@@ -150,6 +158,8 @@ func runTargetServer(t *testing.T, opts *utils.Options) <-chan listenResult {
 }
 
 func runTcpTargetServer(t *testing.T, targetAddr4 netip.AddrPort) <-chan listenResult {
+	t.Helper()
+
 	receivedData := make(chan listenResult, 10)
 
 	server, err := net.Listen("tcp", targetAddr4.String())
@@ -164,6 +174,8 @@ func runTcpTargetServer(t *testing.T, targetAddr4 netip.AddrPort) <-chan listenR
 }
 
 func tcpTargetServerProcess(t *testing.T, server net.Listener, receivedData chan<- listenResult) {
+	t.Helper()
+
 	conn, err := server.Accept()
 	if err != nil {
 		t.Errorf("Failed to accept connection: %v", err)
@@ -198,6 +210,8 @@ func tcpTargetServerProcess(t *testing.T, server net.Listener, receivedData chan
 }
 
 func runUdpTargetServer(t *testing.T, targetAddr4 netip.AddrPort) <-chan listenResult {
+	t.Helper()
+
 	receivedData := make(chan listenResult, 10)
 
 	server, err := net.ListenPacket("udp", targetAddr4.String())
@@ -212,6 +226,8 @@ func runUdpTargetServer(t *testing.T, targetAddr4 netip.AddrPort) <-chan listenR
 }
 
 func udpTargetServerProcess(t *testing.T, server net.PacketConn, receivedData chan<- listenResult) {
+	t.Helper()
+
 	buf := make([]byte, 1024)
 
 	for {

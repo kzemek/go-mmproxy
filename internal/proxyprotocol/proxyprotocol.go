@@ -40,7 +40,6 @@ var ErrInvalidDestinationPort = errors.New("invalid destination port")
 var ErrProxyProtocolV1 = errors.New("v1")
 var ErrProxyProtocolV2 = errors.New("v2")
 var ErrProxyProtocolMissing = errors.New("PROXY header missing")
-var ErrProxyProtocol = errors.New("PROXY protocol error")
 
 type proxyHeader struct {
 	SrcAddr      netip.AddrPort
@@ -48,6 +47,7 @@ type proxyHeader struct {
 	TrailingData []byte
 }
 
+//gocyclo:ignore
 func readRemoteAddrPROXYv2(ctrlBuf []byte, protocol utils.Protocol) (*proxyHeader, error) {
 	if (ctrlBuf[12] >> 4) != 2 {
 		return nil, fmt.Errorf("%w %d", ErrUnknownProcotolVersion, ctrlBuf[12]>>4)
@@ -176,7 +176,7 @@ func ReadRemoteAddr(buf []byte, protocol utils.Protocol) (*proxyHeader, error) {
 	if len(buf) >= 16 && bytes.Equal(buf[:12], proxyv2header) {
 		result, err := readRemoteAddrPROXYv2(buf, protocol)
 		if err != nil {
-			return nil, fmt.Errorf("%w (%w): %w", ErrProxyProtocol, ErrProxyProtocolV2, err)
+			return nil, fmt.Errorf("%w: %w", ErrProxyProtocolV2, err)
 		}
 		return result, nil
 	}
@@ -185,12 +185,12 @@ func ReadRemoteAddr(buf []byte, protocol utils.Protocol) (*proxyHeader, error) {
 	if protocol == utils.TCP && len(buf) >= 8 && bytes.Equal(buf[:5], []byte("PROXY")) {
 		result, err := readRemoteAddrPROXYv1(buf)
 		if err != nil {
-			return nil, fmt.Errorf("%w (%w): %w", ErrProxyProtocol, ErrProxyProtocolV1, err)
+			return nil, fmt.Errorf("%w: %w", ErrProxyProtocolV1, err)
 		}
 		return result, nil
 	}
 
-	return nil, fmt.Errorf("%w: %w", ErrProxyProtocol, ErrProxyProtocolMissing)
+	return nil, ErrProxyProtocolMissing
 }
 
 func convertPort(port int) (uint16, bool) {

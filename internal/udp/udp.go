@@ -100,16 +100,7 @@ func getSocketFromMap(frontendConn net.PacketConn,
 		return connInfo, nil
 	}
 
-	targetAddr := config.Opts.TargetAddr6
-	if proxyHeaderSrcAddr.IsValid() {
-		if config.Opts.DynamicDestination && proxyHeaderDstAddr.IsValid() {
-			targetAddr = proxyHeaderDstAddr
-		} else if proxyHeaderSrcAddr.Addr().Is4() {
-			targetAddr = config.Opts.TargetAddr4
-		}
-	} else if frontendRemoteAddr.Addr().Is4() {
-		targetAddr = config.Opts.TargetAddr4
-	}
+	targetAddr := chooseTargetAddr(proxyHeaderSrcAddr, proxyHeaderDstAddr, frontendRemoteAddr, config)
 
 	config.Logger = config.Logger.With(
 		slog.String("frontendRemoteAddr", frontendRemoteAddr.String()),
@@ -142,6 +133,24 @@ func getSocketFromMap(frontendConn net.PacketConn,
 
 	connMap[proxyHeaderSrcAddr] = connInfo
 	return connInfo, nil
+}
+
+func chooseTargetAddr(proxyHeaderSrcAddr, proxyHeaderDstAddr, frontendRemoteAddr netip.AddrPort, config utils.Config) netip.AddrPort {
+	if proxyHeaderSrcAddr.IsValid() {
+		if config.Opts.DynamicDestination && proxyHeaderDstAddr.IsValid() {
+			return proxyHeaderDstAddr
+		}
+
+		if proxyHeaderSrcAddr.Addr().Is4() {
+			return config.Opts.TargetAddr4
+		}
+	}
+
+	if frontendRemoteAddr.Addr().Is4() {
+		return config.Opts.TargetAddr4
+	}
+
+	return config.Opts.TargetAddr6
 }
 
 func Listen(ctx context.Context, listenConfig *net.ListenConfig, config utils.Config) (*net.UDPConn, error) {

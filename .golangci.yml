@@ -9,6 +9,7 @@ linters:
     - forbidigo
     - gochecknoglobals
     - gochecknoinits
+    - gocyclo
     - gosec
     - nakedret
     - testpackage
@@ -19,9 +20,11 @@ linters:
   disable:
     - noinlineerr
   settings:
-    wrapcheck:
-      ignore-package-globs:
-        - github.com/kzemek/go-mmproxy/*
+    gocyclo:
+      min-complexity: 15
     varnamelen:
       ignore-decls:
         - fd uintptr
+    wrapcheck:
+      ignore-package-globs:
+        - github.com/kzemek/go-mmproxy/*

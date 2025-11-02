@@ -7,6 +7,7 @@ package tcp
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -29,6 +30,22 @@ func copyData(dst *net.TCPConn, src *net.TCPConn, ch chan<- error) {
 func handleConnection(frontendConn *net.TCPConn, config utils.Config) {
 	defer utils.CloseWithLogOnError(frontendConn, config.Logger, "frontend connection")
 
+	config, err := doHandleConnection(frontendConn, config)
+	if err != nil {
+		config.Logger.Debug("dropping connection", slog.Any("error", err))
+	} else {
+		config.LogDebugConn("connection closing")
+	}
+}
+
+var errConnectionOriginNotAllowed = errors.New("connection origin not in allowed subnets")
+var errReadProxyHeader = errors.New("failed to read PROXY header")
+var errParseProxyHeader = errors.New("failed to parse PROXY header")
+var errEstablishBackendConnection = errors.New("failed to establish backend connection")
+var errWriteAllToBackend = errors.New("failed to write data to backend connection")
+var errConnectionBroken = errors.New("connection broken")
+
+func doHandleConnection(frontendConn *net.TCPConn, config utils.Config) (utils.Config, error) {
 	frontendRemoteAddr := netip.MustParseAddrPort(frontendConn.RemoteAddr().String())
 
 	config.Logger = config.Logger.With(
@@ -36,10 +53,7 @@ func handleConnection(frontendConn *net.TCPConn, config utils.Config) {
 		slog.String("frontendLocalAddr", frontendConn.LocalAddr().String()))
 
 	if !config.Opts.CheckOriginAllowed(frontendRemoteAddr.Addr()) {
-		config.Logger.Debug("connection origin not in allowed subnets",
-			slog.Bool("dropConnection", true))
-
-		return
+		return config, errConnectionOriginNotAllowed
 	}
 
 	config.LogDebugConn("new connection")
@@ -53,32 +67,15 @@ func handleConnection(frontendConn *net.TCPConn, config utils.Config) {
 
 	numBytesRead, err := frontendConn.Read(buffer)
 	if err != nil {
-		config.Logger.Debug("failed to read PROXY header",
-			slog.Any("error", err),
-			slog.Bool("dropConnection", true))
-
-		return
+		return config, fmt.Errorf("%w: %w", errReadProxyHeader, err)
 	}
 
 	proxyHeader, err := proxyprotocol.ReadRemoteAddr(buffer[:numBytesRead], utils.TCP)
 	if err != nil {
-		config.Logger.Debug("failed to parse PROXY header",
-			slog.Any("error", err),
-			slog.Bool("dropConnection", true))
-
-		return
+		return config, fmt.Errorf("%w: %w", errParseProxyHeader, err)
 	}
 
-	targetAddr := config.Opts.TargetAddr6
-	if proxyHeader.SrcAddr.IsValid() {
-		if config.Opts.DynamicDestination && proxyHeader.DstAddr.IsValid() {
-			targetAddr = proxyHeader.DstAddr
-		} else if proxyHeader.SrcAddr.Addr().Is4() {
-			targetAddr = config.Opts.TargetAddr4
-		}
-	} else if frontendRemoteAddr.Addr().Is4() {
-		targetAddr = config.Opts.TargetAddr4
-	}
+	targetAddr := chooseTargetAddr(proxyHeader.SrcAddr, proxyHeader.DstAddr, frontendRemoteAddr, config)
 
 	clientAddr := "UNKNOWN"
 	if proxyHeader.SrcAddr.IsValid() {
@@ -90,22 +87,10 @@ func handleConnection(frontendConn *net.TCPConn, config utils.Config) {
 
 	config.LogDebugConn("successfully parsed PROXY header")
 
-	dialer := net.Dialer{}
-	if proxyHeader.SrcAddr.IsValid() {
-		dialer.LocalAddr = net.TCPAddrFromAddrPort(proxyHeader.SrcAddr)
-		dialer.Control = utils.DialBackendControl(proxyHeader.SrcAddr.Port(), config.Opts.Protocol, config.Opts.Mark)
-	}
-	backendConnGeneric, err := dialer.Dial("tcp", targetAddr.String())
+	backendConn, err := establishBackendConnection(proxyHeader.SrcAddr, targetAddr, config)
 	if err != nil {
-		config.Logger.Debug("failed to establish backend connection",
-			slog.Any("error", err),
-			slog.Bool("dropConnection", true))
-
-		return
+		return config, err
 	}
-
-	backendConn := backendConnGeneric.(*net.TCPConn)
-
 	defer utils.CloseWithLogOnError(backendConn, config.Logger, "backend connection")
 	config.LogDebugConn("successfully established backend connection")
 
@@ -125,17 +110,8 @@ func handleConnection(frontendConn *net.TCPConn, config utils.Config) {
 		config.LogDebugConn("successfully set NoDelay on backend connection")
 	}
 
-	restBytes := proxyHeader.TrailingData
-	for len(restBytes) > 0 {
-		numBytesWritten, err := backendConn.Write(restBytes)
-		if err != nil {
-			config.Logger.Debug("failed to write data to backend connection",
-				slog.Any("error", err),
-				slog.Bool("dropConnection", true))
-
-			return
-		}
-		restBytes = restBytes[numBytesWritten:]
+	if err := writeAllToBackend(backendConn, proxyHeader.TrailingData); err != nil {
+		return config, err
 	}
 
 	config.BufferPool.Put(buffer)
@@ -156,18 +132,56 @@ func handleConnection(frontendConn *net.TCPConn, config utils.Config) {
 		}
 
 		if err != nil {
-			config.Logger.Debug("connection broken",
-				slog.Any("error", err),
-				slog.String("direction", direction),
-				slog.Bool("dropConnection", true))
-
-			return
+			return config, fmt.Errorf("%w: %w", errConnectionBroken, err)
 		}
 
 		config.LogDebugConn("connection shutdown for read", slog.String("direction", direction))
 	}
 
-	config.LogDebugConn("connection closing")
+	return config, nil
+}
+
+func chooseTargetAddr(proxyHeaderSrcAddr, proxyHeaderDstAddr, frontendRemoteAddr netip.AddrPort, config utils.Config) netip.AddrPort {
+	if proxyHeaderSrcAddr.IsValid() {
+		if config.Opts.DynamicDestination && proxyHeaderDstAddr.IsValid() {
+			return proxyHeaderDstAddr
+		}
+
+		if proxyHeaderSrcAddr.Addr().Is4() {
+			return config.Opts.TargetAddr4
+		}
+	}
+
+	if frontendRemoteAddr.Addr().Is4() {
+		return config.Opts.TargetAddr4
+	}
+
+	return config.Opts.TargetAddr6
+}
+
+func establishBackendConnection(proxyHeaderSrcAddr, targetAddr netip.AddrPort, config utils.Config) (*net.TCPConn, error) {
+	dialer := net.Dialer{}
+	if proxyHeaderSrcAddr.IsValid() {
+		dialer.LocalAddr = net.TCPAddrFromAddrPort(proxyHeaderSrcAddr)
+		dialer.Control = utils.DialBackendControl(proxyHeaderSrcAddr.Port(), config.Opts.Protocol, config.Opts.Mark)
+	}
+	backendConn, err := dialer.Dial("tcp", targetAddr.String())
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", errEstablishBackendConnection, err)
+	}
+
+	return backendConn.(*net.TCPConn), nil
+}
+
+func writeAllToBackend(conn *net.TCPConn, data []byte) error {
+	for len(data) > 0 {
+		numBytesWritten, err := conn.Write(data)
+		if err != nil {
+			return fmt.Errorf("%w: %w", errWriteAllToBackend, err)
+		}
+		data = data[numBytesWritten:]
+	}
+	return nil
 }
 
 func Listen(ctx context.Context, listenConfig *net.ListenConfig, config utils.Config) (*net.TCPListener, error) {

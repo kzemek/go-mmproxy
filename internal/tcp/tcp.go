@@ -145,7 +145,7 @@ func handleConnection(frontendConn *net.TCPConn, config utils.Config) {
 	go copyData(backendConn, frontendConn, readFrontendErr)
 	go copyData(frontendConn, backendConn, readBackendErr)
 
-	for i := 0; i < 2; i++ {
+	for range 2 {
 		var direction string
 		select {
 		case err = <-readFrontendErr:

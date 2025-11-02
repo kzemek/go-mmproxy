@@ -126,7 +126,7 @@ func runGoMmproxy(opts *utils.Options) {
 		BufferPool: buffers.New(),
 	}
 
-	var listener interface{}
+	var listener any
 	var err error
 	if opts.Protocol == utils.TCP {
 		listener, err = tcp.Listen(context.Background(), &net.ListenConfig{}, config)

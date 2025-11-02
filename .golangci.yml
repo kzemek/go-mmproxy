@@ -9,6 +9,7 @@ linters:
     - forbidigo
     - gochecknoglobals
     - gochecknoinits
+    - nakedret
     - testpackage
     - thelper
     - varnamelen

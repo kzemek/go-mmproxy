@@ -60,7 +60,7 @@ func handleConnection(frontendConn *net.TCPConn, config utils.Config) {
 		return
 	}
 
-	proxyHeaderSrcAddr, proxyHeaderDstAddr, restBytes, err := proxyprotocol.ReadRemoteAddr(buffer[:numBytesRead], utils.TCP)
+	proxyHeader, err := proxyprotocol.ReadRemoteAddr(buffer[:numBytesRead], utils.TCP)
 	if err != nil {
 		config.Logger.Debug("failed to parse PROXY header",
 			slog.Any("error", err),
@@ -70,10 +70,10 @@ func handleConnection(frontendConn *net.TCPConn, config utils.Config) {
 	}
 
 	targetAddr := config.Opts.TargetAddr6
-	if proxyHeaderSrcAddr.IsValid() {
-		if config.Opts.DynamicDestination && proxyHeaderDstAddr.IsValid() {
-			targetAddr = proxyHeaderDstAddr
-		} else if proxyHeaderSrcAddr.Addr().Is4() {
+	if proxyHeader.SrcAddr.IsValid() {
+		if config.Opts.DynamicDestination && proxyHeader.DstAddr.IsValid() {
+			targetAddr = proxyHeader.DstAddr
+		} else if proxyHeader.SrcAddr.Addr().Is4() {
 			targetAddr = config.Opts.TargetAddr4
 		}
 	} else if frontendRemoteAddr.Addr().Is4() {
@@ -81,8 +81,8 @@ func handleConnection(frontendConn *net.TCPConn, config utils.Config) {
 	}
 
 	clientAddr := "UNKNOWN"
-	if proxyHeaderSrcAddr.IsValid() {
-		clientAddr = proxyHeaderSrcAddr.String()
+	if proxyHeader.SrcAddr.IsValid() {
+		clientAddr = proxyHeader.SrcAddr.String()
 	}
 	config.Logger = config.Logger.With(
 		slog.String("clientAddr", clientAddr),
@@ -91,9 +91,9 @@ func handleConnection(frontendConn *net.TCPConn, config utils.Config) {
 	config.LogDebugConn("successfully parsed PROXY header")
 
 	dialer := net.Dialer{}
-	if proxyHeaderSrcAddr.IsValid() {
-		dialer.LocalAddr = net.TCPAddrFromAddrPort(proxyHeaderSrcAddr)
-		dialer.Control = utils.DialBackendControl(proxyHeaderSrcAddr.Port(), config.Opts.Protocol, config.Opts.Mark)
+	if proxyHeader.SrcAddr.IsValid() {
+		dialer.LocalAddr = net.TCPAddrFromAddrPort(proxyHeader.SrcAddr)
+		dialer.Control = utils.DialBackendControl(proxyHeader.SrcAddr.Port(), config.Opts.Protocol, config.Opts.Mark)
 	}
 	backendConnGeneric, err := dialer.Dial("tcp", targetAddr.String())
 	if err != nil {
@@ -125,6 +125,7 @@ func handleConnection(frontendConn *net.TCPConn, config utils.Config) {
 		config.LogDebugConn("successfully set NoDelay on backend connection")
 	}
 
+	restBytes := proxyHeader.TrailingData
 	for len(restBytes) > 0 {
 		numBytesWritten, err := backendConn.Write(restBytes)
 		if err != nil {

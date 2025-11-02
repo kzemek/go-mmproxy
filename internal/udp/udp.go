@@ -175,7 +175,7 @@ func AcceptLoop(listener *net.UDPConn, config utils.Config) error {
 			continue
 		}
 
-		proxyHeaderSrcAddr, proxyHeaderDstAddr, restBytes, err := proxyprotocol.ReadRemoteAddr(buffer[:numBytesRead], utils.UDP)
+		proxyHeader, err := proxyprotocol.ReadRemoteAddr(buffer[:numBytesRead], utils.UDP)
 		if err != nil {
 			config.Logger.Debug("failed to parse PROXY header",
 				slog.Any("error", err),
@@ -198,13 +198,13 @@ func AcceptLoop(listener *net.UDPConn, config utils.Config) error {
 		}
 
 		connInfo, err := getSocketFromMap(listener,
-			frontendRemoteAddr, proxyHeaderSrcAddr, proxyHeaderDstAddr,
+			frontendRemoteAddr, proxyHeader.SrcAddr, proxyHeader.DstAddr,
 			connectionMap, socketClosures, config)
 		if err != nil {
 			continue
 		}
 
-		_, err = connInfo.backendConn.Write(restBytes)
+		_, err = connInfo.backendConn.Write(proxyHeader.TrailingData)
 		if err != nil {
 			connInfo.logger.Error("failed to write to backend socket", slog.Any("error", err))
 		}

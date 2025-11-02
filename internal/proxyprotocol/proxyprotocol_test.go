@@ -16,72 +16,72 @@ import (
 func TestProxyProtocolV1(t *testing.T) {
 	buf := []byte("PROXY TCP4 192.168.0.1 192.168.0.11 56324 443\r\nmoredata")
 
-	saddr, daddr, rest, err := proxyprotocol.ReadRemoteAddr(buf, utils.TCP)
+	proxyHeader, err := proxyprotocol.ReadRemoteAddr(buf, utils.TCP)
 	if err != nil {
 		t.Errorf("Unexpected error: %v", err)
 	}
 
-	if saddr.String() != "192.168.0.1:56324" {
-		t.Errorf("Unexpected source address: %v", saddr)
+	if proxyHeader.SrcAddr.String() != "192.168.0.1:56324" {
+		t.Errorf("Unexpected source address: %v", proxyHeader.SrcAddr)
 	}
 
-	if daddr.String() != "192.168.0.11:443" {
-		t.Errorf("Unexpected destination address: %v", daddr)
+	if proxyHeader.DstAddr.String() != "192.168.0.11:443" {
+		t.Errorf("Unexpected destination address: %v", proxyHeader.DstAddr)
 	}
 
-	if !reflect.DeepEqual(rest, []byte("moredata")) {
-		t.Errorf("Unexpected rest: %v", rest)
+	if !reflect.DeepEqual(proxyHeader.TrailingData, []byte("moredata")) {
+		t.Errorf("Unexpected rest: %v", proxyHeader.TrailingData)
 	}
 }
 
 func TestProxyProtocolV1_nontcp(t *testing.T) {
 	buf := []byte("PROXY UDP4 192.168.0.1 192.168.0.11 56324 443\r\nmoredata")
 
-	saddr, daddr, rest, err := proxyprotocol.ReadRemoteAddr(buf, utils.TCP)
+	proxyHeader, err := proxyprotocol.ReadRemoteAddr(buf, utils.TCP)
 	if err == nil {
-		t.Errorf("Error was expected, yet returned %v %v %v", saddr, daddr, rest)
+		t.Errorf("Error was expected, yet returned %v", proxyHeader)
 	}
 }
 
 func TestProxyProtocolV1_Unknown(t *testing.T) {
 	buf := []byte("PROXY UNKNOWN\r\nmoredata")
 
-	saddr, daddr, rest, err := proxyprotocol.ReadRemoteAddr(buf, utils.TCP)
+	proxyHeader, err := proxyprotocol.ReadRemoteAddr(buf, utils.TCP)
 	if err != nil {
 		t.Errorf("Unexpected error: %v", err)
 	}
 
-	if saddr.IsValid() {
-		t.Errorf("Unexpected source address: %v", saddr)
+	if proxyHeader.SrcAddr.IsValid() {
+		t.Errorf("Unexpected source address: %v", proxyHeader.SrcAddr)
 	}
 
-	if daddr.IsValid() {
-		t.Errorf("Unexpected destination address: %v", daddr)
+	if proxyHeader.DstAddr.IsValid() {
+		t.Errorf("Unexpected destination address: %v", proxyHeader.DstAddr)
 	}
 
-	if !reflect.DeepEqual(rest, []byte("moredata")) {
-		t.Errorf("Unexpected rest: %v", rest)
+	if !reflect.DeepEqual(proxyHeader.TrailingData, []byte("moredata")) {
+		t.Errorf("Unexpected rest: %v", proxyHeader.TrailingData)
 	}
 }
 
 func TestProxyProtocolV1_UnknownWithAddrs(t *testing.T) {
 	buf := []byte("PROXY UNKNOWN ffff::1 ffff::1 1234 1234\r\nmoredata")
 
-	saddr, daddr, rest, err := proxyprotocol.ReadRemoteAddr(buf, utils.TCP)
+	proxyHeader, err := proxyprotocol.ReadRemoteAddr(buf, utils.TCP)
 	if err != nil {
 		t.Errorf("Unexpected error: %v", err)
 	}
 
-	if saddr.IsValid() {
-		t.Errorf("Unexpected source address: %v", saddr)
+	if proxyHeader.SrcAddr.IsValid() {
+		t.Errorf("Unexpected source address: %v", proxyHeader.SrcAddr)
 	}
 
-	if daddr.IsValid() {
-		t.Errorf("Unexpected destination address: %v", daddr)
+	if proxyHeader.DstAddr.IsValid() {
+		t.Errorf("Unexpected destination address: %v", proxyHeader.DstAddr)
 	}
 
-	if !reflect.DeepEqual(rest, []byte("moredata")) {
-		t.Errorf("Unexpected rest: %v", rest)
+	if !reflect.DeepEqual(proxyHeader.TrailingData, []byte("moredata")) {
+		t.Errorf("Unexpected rest: %v", proxyHeader.TrailingData)
 	}
 }
 
@@ -96,21 +96,21 @@ func TestProxyProtocolV2(t *testing.T) {
 	buf = append(buf, 0x01, 0xBB)      // dport 443
 	buf = append(buf, []byte("moredata")...)
 
-	saddr, daddr, rest, err := proxyprotocol.ReadRemoteAddr(buf, utils.TCP)
+	proxyHeader, err := proxyprotocol.ReadRemoteAddr(buf, utils.TCP)
 	if err != nil {
 		t.Errorf("Unexpected error: %v", err)
 	}
 
-	if saddr.String() != "192.168.0.1:56324" {
-		t.Errorf("Unexpected source address: %v", saddr)
+	if proxyHeader.SrcAddr.String() != "192.168.0.1:56324" {
+		t.Errorf("Unexpected source address: %v", proxyHeader.SrcAddr)
 	}
 
-	if daddr.String() != "192.168.0.11:443" {
-		t.Errorf("Unexpected destination address: %v", daddr)
+	if proxyHeader.DstAddr.String() != "192.168.0.11:443" {
+		t.Errorf("Unexpected destination address: %v", proxyHeader.DstAddr)
 	}
 
-	if !reflect.DeepEqual(rest, []byte("moredata")) {
-		t.Errorf("Unexpected rest: %v", rest)
+	if !reflect.DeepEqual(proxyHeader.TrailingData, []byte("moredata")) {
+		t.Errorf("Unexpected rest: %v", proxyHeader.TrailingData)
 	}
 }
 
@@ -128,20 +128,20 @@ func TestProxyProtocolV2_udp6(t *testing.T) {
 	buf = append(buf, 0x01, 0xBB) // dport 443
 	buf = append(buf, []byte("moredata")...)
 
-	saddr, daddr, rest, err := proxyprotocol.ReadRemoteAddr(buf, utils.UDP)
+	proxyHeader, err := proxyprotocol.ReadRemoteAddr(buf, utils.UDP)
 	if err != nil {
 		t.Errorf("Unexpected error: %v", err)
 	}
 
-	if saddr != netip.AddrPortFrom(expectedSaddr, 56324) {
-		t.Errorf("Unexpected source address: %v", saddr)
+	if proxyHeader.SrcAddr != netip.AddrPortFrom(expectedSaddr, 56324) {
+		t.Errorf("Unexpected source address: %v", proxyHeader.SrcAddr)
 	}
 
-	if daddr != netip.AddrPortFrom(expectedDaddr, 443) {
-		t.Errorf("Unexpected destination address: %v", daddr)
+	if proxyHeader.DstAddr != netip.AddrPortFrom(expectedDaddr, 443) {
+		t.Errorf("Unexpected destination address: %v", proxyHeader.DstAddr)
 	}
 
-	if !reflect.DeepEqual(rest, []byte("moredata")) {
-		t.Errorf("Unexpected rest: %v", rest)
+	if !reflect.DeepEqual(proxyHeader.TrailingData, []byte("moredata")) {
+		t.Errorf("Unexpected rest: %v", proxyHeader.TrailingData)
 	}
 }

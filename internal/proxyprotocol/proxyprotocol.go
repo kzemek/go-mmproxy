@@ -42,38 +42,40 @@ var ErrProxyProtocolV2 = errors.New("v2")
 var ErrProxyProtocolMissing = errors.New("PROXY header missing")
 var ErrProxyProtocol = errors.New("PROXY protocol error")
 
-func readRemoteAddrPROXYv2(ctrlBuf []byte, protocol utils.Protocol) (proxyHeaderSrcAddr, proxyHeaderDstAddr netip.AddrPort, data []byte, resultErr error) {
+type proxyHeader struct {
+	SrcAddr      netip.AddrPort
+	DstAddr      netip.AddrPort
+	TrailingData []byte
+}
+
+func readRemoteAddrPROXYv2(ctrlBuf []byte, protocol utils.Protocol) (*proxyHeader, error) {
 	if (ctrlBuf[12] >> 4) != 2 {
-		resultErr = fmt.Errorf("%w %d", ErrUnknownProcotolVersion, ctrlBuf[12]>>4)
-		return
+		return nil, fmt.Errorf("%w %d", ErrUnknownProcotolVersion, ctrlBuf[12]>>4)
 	}
 
 	if ctrlBuf[12]&0xF > 1 {
-		resultErr = fmt.Errorf("%w %d", ErrUnknownCommand, ctrlBuf[12]&0xF)
-		return
+		return nil, fmt.Errorf("%w %d", ErrUnknownCommand, ctrlBuf[12]&0xF)
 	}
 
 	if ctrlBuf[12]&0xF == 1 && ((protocol == utils.TCP && ctrlBuf[13] != 0x11 && ctrlBuf[13] != 0x21) ||
 		(protocol == utils.UDP && ctrlBuf[13] != 0x12 && ctrlBuf[13] != 0x22)) {
-		resultErr = fmt.Errorf("%w %d/%d", ErrInvalidFamilyProtocol, ctrlBuf[13]>>4, ctrlBuf[13]&0xF)
-		return
+		return nil, fmt.Errorf("%w %d/%d", ErrInvalidFamilyProtocol, ctrlBuf[13]>>4, ctrlBuf[13]&0xF)
 	}
 
 	var dataLen uint16
 	reader := bytes.NewReader(ctrlBuf[14:16])
 	if err := binary.Read(reader, binary.BigEndian, &dataLen); err != nil {
-		resultErr = fmt.Errorf("%w: %w", ErrDecodeAddressDataLength, err)
-		return
+		return nil, fmt.Errorf("%w: %w", ErrDecodeAddressDataLength, err)
 	}
 
 	if len(ctrlBuf) < 16+int(dataLen) {
-		resultErr = ErrIncompleteProxyHeader
-		return
+		return nil, ErrIncompleteProxyHeader
 	}
 
 	if ctrlBuf[12]&0xF == 0 { // LOCAL
-		data = ctrlBuf[16+dataLen:]
-		return
+		return &proxyHeader{
+			TrailingData: ctrlBuf[16+dataLen:],
+		}, nil
 	}
 
 	var sport, dport uint16
@@ -83,20 +85,16 @@ func readRemoteAddrPROXYv2(ctrlBuf []byte, protocol utils.Protocol) (proxyHeader
 		reader = bytes.NewReader(ctrlBuf[48:])
 	}
 	if err := binary.Read(reader, binary.BigEndian, &sport); err != nil {
-		resultErr = fmt.Errorf("%w: %w", ErrDecodeSourcePort, err)
-		return
+		return nil, fmt.Errorf("%w: %w", ErrDecodeSourcePort, err)
 	}
 	if sport == 0 {
-		resultErr = fmt.Errorf("%w %d", ErrInvalidSourcePort, sport)
-		return
+		return nil, fmt.Errorf("%w %d", ErrInvalidSourcePort, sport)
 	}
 	if err := binary.Read(reader, binary.BigEndian, &dport); err != nil {
-		resultErr = fmt.Errorf("%w: %w", ErrDecodeDestinationPort, err)
-		return
+		return nil, fmt.Errorf("%w: %w", ErrDecodeDestinationPort, err)
 	}
 	if dport == 0 {
-		resultErr = fmt.Errorf("%w %d", ErrInvalidDestinationPort, dport)
-		return
+		return nil, fmt.Errorf("%w %d", ErrInvalidDestinationPort, dport)
 	}
 
 	var srcIP, dstIP netip.Addr
@@ -108,95 +106,87 @@ func readRemoteAddrPROXYv2(ctrlBuf []byte, protocol utils.Protocol) (proxyHeader
 		dstIP, _ = netip.AddrFromSlice(ctrlBuf[32:48])
 	}
 
-	proxyHeaderSrcAddr = netip.AddrPortFrom(srcIP, sport)
-	proxyHeaderDstAddr = netip.AddrPortFrom(dstIP, dport)
-	data = ctrlBuf[16+dataLen:]
-	return
+	return &proxyHeader{
+		SrcAddr:      netip.AddrPortFrom(srcIP, sport),
+		DstAddr:      netip.AddrPortFrom(dstIP, dport),
+		TrailingData: ctrlBuf[16+dataLen:],
+	}, nil
 }
 
-func readRemoteAddrPROXYv1(ctrlBuf []byte) (proxyHeaderSrcAddr, proxyHeaderDstAddr netip.AddrPort, data []byte, resultErr error) {
+func readRemoteAddrPROXYv1(ctrlBuf []byte) (*proxyHeader, error) {
 	str := string(ctrlBuf)
 	idx := strings.Index(str, "\r\n")
 	if idx < 0 {
-		resultErr = ErrNoTerminator
-		return
+		return nil, ErrNoTerminator
 	}
 
 	var headerProtocol string
 	numItemsParsed, err := fmt.Sscanf(str, "PROXY %s", &headerProtocol)
 	if err != nil {
-		resultErr = err
-		return
+		return nil, fmt.Errorf("%w: %w", ErrInvalidFormat, err)
 	}
 	if numItemsParsed != 1 {
-		resultErr = ErrInvalidFormat
-		return
+		return nil, ErrInvalidFormat
 	}
 	if headerProtocol == "UNKNOWN" {
-		data = ctrlBuf[idx+2:]
-		return
+		return &proxyHeader{
+			TrailingData: ctrlBuf[idx+2:],
+		}, nil
 	}
 	if headerProtocol != "TCP4" && headerProtocol != "TCP6" {
-		resultErr = fmt.Errorf("%w %s", ErrUnknownProtocol, headerProtocol)
-		return
+		return nil, fmt.Errorf("%w %s", ErrUnknownProtocol, headerProtocol)
 	}
 
 	var src, dst string
 	var sport, dport int
 	numItemsParsed, err = fmt.Sscanf(str, "PROXY %s %s %s %d %d", &headerProtocol, &src, &dst, &sport, &dport)
 	if err != nil {
-		resultErr = err
-		return
+		return nil, fmt.Errorf("%w: %w", ErrInvalidFormat, err)
 	}
 	if numItemsParsed != 5 {
-		resultErr = ErrInvalidFormat
-		return
+		return nil, ErrInvalidFormat
 	}
 	if sport <= 0 || sport > 65535 {
-		resultErr = fmt.Errorf("%w %d", ErrInvalidSourcePort, sport)
-		return
+		return nil, fmt.Errorf("%w %d", ErrInvalidSourcePort, sport)
 	}
 	if dport <= 0 || dport > 65535 {
-		resultErr = fmt.Errorf("%w %d", ErrInvalidDestinationPort, dport)
-		return
+		return nil, fmt.Errorf("%w %d", ErrInvalidDestinationPort, dport)
 	}
 	srcIP, err := netip.ParseAddr(src)
 	if err != nil {
-		resultErr = fmt.Errorf("%w %s: %w", ErrParseSourceAddress, src, err)
-		return
+		return nil, fmt.Errorf("%w %s: %w", ErrParseSourceAddress, src, err)
 	}
 	dstIP, err := netip.ParseAddr(dst)
 	if err != nil {
-		resultErr = fmt.Errorf("%w %s: %w", ErrParseDestinationAddress, dst, err)
-		return
+		return nil, fmt.Errorf("%w %s: %w", ErrParseDestinationAddress, dst, err)
 	}
 
-	proxyHeaderSrcAddr = netip.AddrPortFrom(srcIP, uint16(sport))
-	proxyHeaderDstAddr = netip.AddrPortFrom(dstIP, uint16(dport))
-	data = ctrlBuf[idx+2:]
-	return
+	return &proxyHeader{
+		SrcAddr:      netip.AddrPortFrom(srcIP, uint16(sport)),
+		DstAddr:      netip.AddrPortFrom(dstIP, uint16(dport)),
+		TrailingData: ctrlBuf[idx+2:],
+	}, nil
 }
 
-func ReadRemoteAddr(buf []byte, protocol utils.Protocol) (proxyHeaderSrcAddr, proxyHeaderDstAddr netip.AddrPort, rest []byte, err error) {
+func ReadRemoteAddr(buf []byte, protocol utils.Protocol) (*proxyHeader, error) {
 	proxyv2header := []byte{0x0D, 0x0A, 0x0D, 0x0A, 0x00, 0x0D, 0x0A, 0x51, 0x55, 0x49, 0x54, 0x0A}
 
 	if len(buf) >= 16 && bytes.Equal(buf[:12], proxyv2header) {
-		proxyHeaderSrcAddr, proxyHeaderDstAddr, rest, err = readRemoteAddrPROXYv2(buf, protocol)
+		result, err := readRemoteAddrPROXYv2(buf, protocol)
 		if err != nil {
-			err = fmt.Errorf("%w (%w): %w", ErrProxyProtocol, ErrProxyProtocolV2, err)
+			return nil, fmt.Errorf("%w (%w): %w", ErrProxyProtocol, ErrProxyProtocolV2, err)
 		}
-		return
+		return result, nil
 	}
 
 	// PROXYv1 only works with TCP
 	if protocol == utils.TCP && len(buf) >= 8 && bytes.Equal(buf[:5], []byte("PROXY")) {
-		proxyHeaderSrcAddr, proxyHeaderDstAddr, rest, err = readRemoteAddrPROXYv1(buf)
+		result, err := readRemoteAddrPROXYv1(buf)
 		if err != nil {
-			err = fmt.Errorf("%w (%w): %w", ErrProxyProtocol, ErrProxyProtocolV1, err)
+			return nil, fmt.Errorf("%w (%w): %w", ErrProxyProtocol, ErrProxyProtocolV1, err)
 		}
-		return
+		return result, nil
 	}
 
-	err = fmt.Errorf("%w: %w", ErrProxyProtocol, ErrProxyProtocolMissing)
-	return
+	return nil, fmt.Errorf("%w: %w", ErrProxyProtocol, ErrProxyProtocolMissing)
 }

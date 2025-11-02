@@ -107,17 +107,6 @@ func readData(t *testing.T, conn net.Conn) string {
 }
 
 func runGoMmproxy(opts *utils.Options) {
-	var ln interface{}
-	var err error
-	if opts.Protocol == utils.TCP {
-		ln, err = tcp.Listen(context.Background(), &net.ListenConfig{}, opts)
-	} else {
-		ln, err = udp.Listen(context.Background(), &net.ListenConfig{}, opts)
-	}
-	if err != nil {
-		panic(fmt.Errorf("failed to bind listener: %w", err))
-	}
-
 	lvl := slog.LevelInfo
 	if opts.Verbose > 0 {
 		lvl = slog.LevelDebug
@@ -125,13 +114,28 @@ func runGoMmproxy(opts *utils.Options) {
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: lvl}))
 
-	buffers := buffers.New()
+	config := utils.Config{
+		Opts:       opts,
+		Logger:     logger,
+		BufferPool: buffers.New(),
+	}
+
+	var ln interface{}
+	var err error
+	if opts.Protocol == utils.TCP {
+		ln, err = tcp.Listen(context.Background(), &net.ListenConfig{}, config)
+	} else {
+		ln, err = udp.Listen(context.Background(), &net.ListenConfig{}, config)
+	}
+	if err != nil {
+		panic(fmt.Errorf("failed to bind listener: %w", err))
+	}
 
 	go func() {
 		if opts.Protocol == utils.TCP {
-			tcp.AcceptLoop(ln.(*net.TCPListener), opts, buffers, logger)
+			tcp.AcceptLoop(ln.(*net.TCPListener), config)
 		} else {
-			udp.AcceptLoop(ln.(*net.UDPConn), opts, buffers, logger)
+			udp.AcceptLoop(ln.(*net.UDPConn), config)
 		}
 		panic("AcceptLoop returned")
 	}()

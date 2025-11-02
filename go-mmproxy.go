@@ -25,64 +25,68 @@ import (
 	"github.com/kzemek/go-mmproxy/internal/utils"
 )
 
-func listen(ctx context.Context, listenerNum int, wg *sync.WaitGroup, opts *utils.Options, buffers buffers.BufferPool, parentLogger *slog.Logger) {
+func listen(ctx context.Context, listenerNum int, wg *sync.WaitGroup, config utils.Config) {
 	defer wg.Done()
 
-	logger := parentLogger.With(slog.Int("listenerNum", listenerNum),
-		slog.String("protocol", opts.Protocol.String()), slog.String("listenAddr", opts.ListenAddr.String()))
+	config.Logger = config.Logger.With(
+		slog.Int("listenerNum", listenerNum),
+		slog.String("protocol", config.Opts.Protocol.String()),
+		slog.String("listenAddr", config.Opts.ListenAddr.String()))
 
 	listenConfig := net.ListenConfig{}
 	listenConfig.Control = func(network, address string, c syscall.RawConn) error {
 		return c.Control(func(fd uintptr) {
-			if opts.ListenTransparent {
+			if config.Opts.ListenTransparent {
 				if err := syscall.SetsockoptInt(int(fd), syscall.IPPROTO_IP, syscall.IP_TRANSPARENT, 1); err != nil {
-					logger.Warn("failed to set IP_TRANSPARENT on listen port", slog.String("error", err.Error()))
+					config.Logger.Warn("failed to set IP_TRANSPARENT on listen port",
+						slog.String("error", err.Error()))
 				}
 			}
 
-			if opts.Listeners > 1 {
+			if config.Opts.Listeners > 1 {
 				soReusePort := 15
 				if err := syscall.SetsockoptInt(int(fd), syscall.SOL_SOCKET, soReusePort, 1); err != nil {
-					logger.Warn("failed to set SO_REUSEPORT - only one listener setup will succeed", slog.String("error", err.Error()))
+					config.Logger.Warn("failed to set SO_REUSEPORT - only one listener setup will succeed",
+						slog.String("error", err.Error()))
 				}
 			}
 		})
 	}
 
-	if err := doListen(ctx, &listenConfig, opts, buffers, logger); err != nil {
-		logger.Error("lister error", slog.Any("error", err))
+	if err := doListen(ctx, &listenConfig, config); err != nil {
+		config.Logger.Error("listen error", slog.Any("error", err))
 	}
 }
 
-func doListen(ctx context.Context, listenConfig *net.ListenConfig, opts *utils.Options, buffers buffers.BufferPool, logger *slog.Logger) error {
-	switch opts.Protocol {
+func doListen(ctx context.Context, listenConfig *net.ListenConfig, config utils.Config) error {
+	switch config.Opts.Protocol {
 	case utils.TCP:
-		return doListenTCP(ctx, listenConfig, opts, buffers, logger)
+		return doListenTCP(ctx, listenConfig, config)
 	case utils.UDP:
-		return doListenUDP(ctx, listenConfig, opts, buffers, logger)
+		return doListenUDP(ctx, listenConfig, config)
 	default:
-		panic(fmt.Sprintf("invalid protocol %d", opts.Protocol))
+		panic(fmt.Sprintf("invalid protocol %d", config.Opts.Protocol))
 	}
 }
 
-func doListenTCP(ctx context.Context, listenConfig *net.ListenConfig, opts *utils.Options, buffers buffers.BufferPool, logger *slog.Logger) error {
-	ln, err := tcp.Listen(ctx, listenConfig, opts)
+func doListenTCP(ctx context.Context, listenConfig *net.ListenConfig, config utils.Config) error {
+	ln, err := tcp.Listen(ctx, listenConfig, config)
 	if err != nil {
 		return err
 	}
 	defer ln.Close()
-	logger.Info("listening")
-	return tcp.AcceptLoop(ln, opts, buffers, logger)
+	config.Logger.Info("listening")
+	return tcp.AcceptLoop(ln, config)
 }
 
-func doListenUDP(ctx context.Context, listenConfig *net.ListenConfig, opts *utils.Options, buffers buffers.BufferPool, logger *slog.Logger) error {
-	ln, err := udp.Listen(ctx, listenConfig, opts)
+func doListenUDP(ctx context.Context, listenConfig *net.ListenConfig, config utils.Config) error {
+	ln, err := udp.Listen(ctx, listenConfig, config)
 	if err != nil {
 		return err
 	}
 	defer ln.Close()
-	logger.Info("listening")
-	return udp.AcceptLoop(ln, opts, buffers, logger)
+	config.Logger.Info("listening")
+	return udp.AcceptLoop(ln, config)
 }
 
 func loadAllowedSubnets(allowedSubnetsPath string) ([]netip.Prefix, error) {
@@ -210,11 +214,14 @@ func main() {
 		os.Exit(1)
 	}
 
-	buffers := buffers.New()
-	logger := initLogger(opts)
+	config := utils.Config{
+		Opts:       opts,
+		Logger:     initLogger(opts),
+		BufferPool: buffers.New(),
+	}
 
 	for _, allowedSubnet := range opts.AllowedSubnets {
-		logger.Info("allowed subnet", slog.String("subnet", allowedSubnet.String()))
+		config.Logger.Info("allowed subnet", slog.String("subnet", allowedSubnet.String()))
 	}
 
 	wg := sync.WaitGroup{}
@@ -222,7 +229,7 @@ func main() {
 	for i := range ctxs {
 		ctxs[i] = context.Background()
 		wg.Add(1)
-		go listen(ctxs[i], i, &wg, opts, buffers, logger)
+		go listen(ctxs[i], i, &wg, config)
 	}
 
 	wg.Wait()

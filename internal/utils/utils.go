@@ -7,11 +7,14 @@ package utils
 
 import (
 	"fmt"
+	"log/slog"
 	"net"
 	"net/netip"
 	"strconv"
 	"syscall"
 	"time"
+
+	"github.com/kzemek/go-mmproxy/internal/buffers"
 )
 
 type Protocol int
@@ -46,17 +49,30 @@ type Options struct {
 	Listeners          int
 }
 
-func CheckOriginAllowed(remoteIP netip.Addr, allowedSubnets []netip.Prefix) bool {
-	if len(allowedSubnets) == 0 {
+func (o *Options) CheckOriginAllowed(remoteIP netip.Addr) bool {
+	if len(o.AllowedSubnets) == 0 {
 		return true
 	}
 
-	for _, ipNet := range allowedSubnets {
+	for _, ipNet := range o.AllowedSubnets {
 		if ipNet.Contains(remoteIP) {
 			return true
 		}
 	}
 	return false
+}
+
+type Config struct {
+	Opts       *Options
+	Logger     *slog.Logger
+	BufferPool buffers.BufferPool
+}
+
+// LogDebugConn logs a debug message for a connection (only logged if verbose > 1).
+func (c *Config) LogDebugConn(msg string, vars ...any) {
+	if c.Opts.Verbose > 1 {
+		c.Logger.Debug(msg, vars...)
+	}
 }
 
 func ParseHostPort(hostport string, ipVersion int) (netip.AddrPort, error) {

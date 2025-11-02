@@ -119,7 +119,7 @@ func DialBackendControl(sport uint16, protocol Protocol, mark int) func(string, 
 	return func(network, address string, c syscall.RawConn) error {
 		var syscallErr error
 		controlErr := c.Control(func(fd uintptr) {
-			syscallErr = doDialBackendControl(int(fd), protocol, network, sport, mark)
+			syscallErr = doDialBackendControl(fd, protocol, network, sport, mark)
 		})
 
 		if controlErr != nil {
@@ -129,7 +129,7 @@ func DialBackendControl(sport uint16, protocol Protocol, mark int) func(string, 
 	}
 }
 
-func doDialBackendControl(fd int, protocol Protocol, network string, sport uint16, mark int) error {
+func doDialBackendControl(fd uintptr, protocol Protocol, network string, sport uint16, mark int) error {
 	if protocol == TCP {
 		if err := setsockopt.TCPSynCnt(fd, 2); err != nil {
 			return err

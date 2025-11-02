@@ -126,12 +126,12 @@ func runGoMmproxy(opts *utils.Options) {
 		BufferPool: buffers.New(),
 	}
 
-	var ln interface{}
+	var listener interface{}
 	var err error
 	if opts.Protocol == utils.TCP {
-		ln, err = tcp.Listen(context.Background(), &net.ListenConfig{}, config)
+		listener, err = tcp.Listen(context.Background(), &net.ListenConfig{}, config)
 	} else {
-		ln, err = udp.Listen(context.Background(), &net.ListenConfig{}, config)
+		listener, err = udp.Listen(context.Background(), &net.ListenConfig{}, config)
 	}
 	if err != nil {
 		panic(fmt.Errorf("failed to bind listener: %w", err))
@@ -139,9 +139,9 @@ func runGoMmproxy(opts *utils.Options) {
 
 	go func() {
 		if opts.Protocol == utils.TCP {
-			_ = tcp.AcceptLoop(ln.(*net.TCPListener), config)
+			_ = tcp.AcceptLoop(listener.(*net.TCPListener), config)
 		} else {
-			_ = udp.AcceptLoop(ln.(*net.UDPConn), config)
+			_ = udp.AcceptLoop(listener.(*net.UDPConn), config)
 		}
 		panic("AcceptLoop returned")
 	}()
@@ -185,13 +185,13 @@ func tcpTargetServerProcess(t *testing.T, server net.Listener, receivedData chan
 	buf := make([]byte, 1024)
 
 	for {
-		n, err := conn.Read(buf)
+		numBytesRead, err := conn.Read(buf)
 		if err != nil && !errors.Is(err, io.EOF) {
 			t.Errorf("Failed to read data: %v", err)
 			return
 		}
 
-		message := string(buf[:n])
+		message := string(buf[:numBytesRead])
 
 		if _, err := fmt.Fprintf(conn, "response: %s", message); err != nil {
 			t.Errorf("Failed to write data: %v", err)
@@ -231,7 +231,7 @@ func udpTargetServerProcess(t *testing.T, server net.PacketConn, receivedData ch
 	buf := make([]byte, 1024)
 
 	for {
-		n, addr, err := server.ReadFrom(buf)
+		numBytesRead, addr, err := server.ReadFrom(buf)
 		if errors.Is(err, net.ErrClosed) {
 			return
 		}
@@ -240,7 +240,7 @@ func udpTargetServerProcess(t *testing.T, server net.PacketConn, receivedData ch
 			return
 		}
 
-		message := string(buf[:n])
+		message := string(buf[:numBytesRead])
 
 		receivedData <- listenResult{
 			message: message,

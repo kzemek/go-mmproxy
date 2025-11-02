@@ -123,12 +123,12 @@ func readRemoteAddrPROXYv1(ctrlBuf []byte) (proxyHeaderSrcAddr, proxyHeaderDstAd
 	}
 
 	var headerProtocol string
-	n, err := fmt.Sscanf(str, "PROXY %s", &headerProtocol)
+	numItemsParsed, err := fmt.Sscanf(str, "PROXY %s", &headerProtocol)
 	if err != nil {
 		resultErr = err
 		return
 	}
-	if n != 1 {
+	if numItemsParsed != 1 {
 		resultErr = ErrInvalidFormat
 		return
 	}
@@ -143,12 +143,12 @@ func readRemoteAddrPROXYv1(ctrlBuf []byte) (proxyHeaderSrcAddr, proxyHeaderDstAd
 
 	var src, dst string
 	var sport, dport int
-	n, err = fmt.Sscanf(str, "PROXY %s %s %s %d %d", &headerProtocol, &src, &dst, &sport, &dport)
+	numItemsParsed, err = fmt.Sscanf(str, "PROXY %s %s %s %d %d", &headerProtocol, &src, &dst, &sport, &dport)
 	if err != nil {
 		resultErr = err
 		return
 	}
-	if n != 5 {
+	if numItemsParsed != 5 {
 		resultErr = ErrInvalidFormat
 		return
 	}

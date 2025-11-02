@@ -51,7 +51,7 @@ func handleConnection(frontendConn *net.TCPConn, config utils.Config) {
 		}
 	}()
 
-	n, err := frontendConn.Read(buffer)
+	numBytesRead, err := frontendConn.Read(buffer)
 	if err != nil {
 		config.Logger.Debug("failed to read PROXY header",
 			slog.Any("error", err),
@@ -60,7 +60,7 @@ func handleConnection(frontendConn *net.TCPConn, config utils.Config) {
 		return
 	}
 
-	proxyHeaderSrcAddr, proxyHeaderDstAddr, restBytes, err := proxyprotocol.ReadRemoteAddr(buffer[:n], utils.TCP)
+	proxyHeaderSrcAddr, proxyHeaderDstAddr, restBytes, err := proxyprotocol.ReadRemoteAddr(buffer[:numBytesRead], utils.TCP)
 	if err != nil {
 		config.Logger.Debug("failed to parse PROXY header",
 			slog.Any("error", err),
@@ -126,7 +126,7 @@ func handleConnection(frontendConn *net.TCPConn, config utils.Config) {
 	}
 
 	for len(restBytes) > 0 {
-		n, err := backendConn.Write(restBytes)
+		numBytesWritten, err := backendConn.Write(restBytes)
 		if err != nil {
 			config.Logger.Debug("failed to write data to backend connection",
 				slog.Any("error", err),
@@ -134,7 +134,7 @@ func handleConnection(frontendConn *net.TCPConn, config utils.Config) {
 
 			return
 		}
-		restBytes = restBytes[n:]
+		restBytes = restBytes[numBytesWritten:]
 	}
 
 	config.BufferPool.Put(buffer)

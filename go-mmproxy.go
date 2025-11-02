@@ -26,9 +26,7 @@ import (
 	"github.com/kzemek/go-mmproxy/internal/utils"
 )
 
-func listen(ctx context.Context, listenerNum int, wg *sync.WaitGroup, config utils.Config) {
-	defer wg.Done()
-
+func listen(ctx context.Context, listenerNum int, config utils.Config) {
 	config.Logger = config.Logger.With(
 		slog.Int("listenerNum", listenerNum),
 		slog.String("protocol", config.Opts.Protocol.String()),
@@ -38,14 +36,14 @@ func listen(ctx context.Context, listenerNum int, wg *sync.WaitGroup, config uti
 	listenConfig.Control = func(network, address string, c syscall.RawConn) error {
 		return c.Control(func(fd uintptr) {
 			if config.Opts.ListenTransparent {
-				if err := setsockopt.IPTransparent(int(fd), true); err != nil {
+				if err := setsockopt.IPTransparent(fd, true); err != nil {
 					config.Logger.Warn("failed to set IP_TRANSPARENT on listen port",
 						slog.String("error", err.Error()))
 				}
 			}
 
 			if config.Opts.Listeners > 1 {
-				if err := setsockopt.ReusePort(int(fd), true); err != nil {
+				if err := setsockopt.ReusePort(fd, true); err != nil {
 					config.Logger.Warn("failed to set SO_REUSEPORT - only one listener setup will succeed",
 						slog.String("error", err.Error()))
 				}
@@ -70,24 +68,24 @@ func doListen(ctx context.Context, listenConfig *net.ListenConfig, config utils.
 }
 
 func doListenTCP(ctx context.Context, listenConfig *net.ListenConfig, config utils.Config) error {
-	ln, err := tcp.Listen(ctx, listenConfig, config)
+	listener, err := tcp.Listen(ctx, listenConfig, config)
 	if err != nil {
 		return err
 	}
-	defer utils.CloseWithLogOnError(ln, config.Logger, "listener")
+	defer utils.CloseWithLogOnError(listener, config.Logger, "listener")
 
 	config.Logger.Info("listening")
-	return tcp.AcceptLoop(ln, config)
+	return tcp.AcceptLoop(listener, config)
 }
 
 func doListenUDP(ctx context.Context, listenConfig *net.ListenConfig, config utils.Config) error {
-	ln, err := udp.Listen(ctx, listenConfig, config)
+	listener, err := udp.Listen(ctx, listenConfig, config)
 	if err != nil {
 		return err
 	}
-	defer utils.CloseWithLogOnError(ln, config.Logger, "listener")
+	defer utils.CloseWithLogOnError(listener, config.Logger, "listener")
 	config.Logger.Info("listening")
-	return udp.AcceptLoop(ln, config)
+	return udp.AcceptLoop(listener, config)
 }
 
 func loadAllowedSubnets(allowedSubnetsPath string) ([]netip.Prefix, error) {
@@ -206,7 +204,7 @@ func parseOptions() *utils.Options {
 			println("failed to load allowed subnets:", err)
 			os.Exit(1)
 		}
-    }
+	}
 
 	return opts
 }
@@ -232,13 +230,12 @@ func main() {
 		config.Logger.Info("allowed subnet", slog.String("subnet", allowedSubnet.String()))
 	}
 
-	wg := sync.WaitGroup{}
+	waitGroup := sync.WaitGroup{}
 	ctxs := make([]context.Context, opts.Listeners)
 	for i := range ctxs {
 		ctxs[i] = context.Background()
-		wg.Add(1)
-		go listen(ctxs[i], i, &wg, config)
+		waitGroup.Go(func() { listen(ctxs[i], i, config) })
 	}
 
-	wg.Wait()
+	waitGroup.Wait()
 }

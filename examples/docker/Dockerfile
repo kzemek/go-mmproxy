@@ -1,4 +1,4 @@
-FROM golang:1.21 AS builder
+FROM golang:1.25 AS builder
 RUN apt-get update && apt-get install -y iptables iproute2 && apt-get clean
 WORKDIR /app/src/go-mmproxy
 COPY . .

@@ -19,7 +19,7 @@ For background on the approach, see Cloudflare's write-up: [mmproxy - Creative L
 go install github.com/kzemek/go-mmproxy@latest
 ```
 
-You'll need at least `go 1.21`.
+You'll need at least `go 1.25`.
 
 ## Requirements
 

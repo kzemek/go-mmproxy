@@ -19,7 +19,8 @@ import (
 // Proxy Protocol V2 errors
 var ErrUnknownProcotolVersion = errors.New("unknown protocol version")
 var ErrUnknownCommand = errors.New("unknown command")
-var ErrInvalidFamilyProtocol = errors.New("invalid family/protocol")
+var ErrInvalidFamily = errors.New("invalid family")
+var ErrInvalidProtocol = errors.New("invalid protocol")
 var ErrDecodeAddressDataLength = errors.New("failed to decode address data length")
 var ErrIncompleteProxyHeader = errors.New("incomplete PROXY header")
 var ErrDecodeSourcePort = errors.New("failed to decode source port")
@@ -47,19 +48,41 @@ type proxyHeader struct {
 	TrailingData []byte
 }
 
+// PROXY Protocol V2 constants
+const (
+	commandLocal = 0
+	commandProxy = 1
+
+	addressFamilyInet  = 1
+	addressFamilyInet6 = 2
+
+	protocolStream = 1
+	protocolDgram  = 2
+)
+
 //gocyclo:ignore
-func readRemoteAddrPROXYv2(ctrlBuf []byte, protocol utils.Protocol) (*proxyHeader, error) {
-	if (ctrlBuf[12] >> 4) != 2 {
-		return nil, fmt.Errorf("%w %d", ErrUnknownProcotolVersion, ctrlBuf[12]>>4)
+func readRemoteAddrPROXYv2(ctrlBuf []byte, expectedProtocol utils.Protocol) (*proxyHeader, error) {
+	protocolVersion := (ctrlBuf[12] >> 4)
+	if protocolVersion != 2 {
+		return nil, fmt.Errorf("%w %d", ErrUnknownProcotolVersion, protocolVersion)
 	}
 
-	if ctrlBuf[12]&0xF > 1 {
-		return nil, fmt.Errorf("%w %d", ErrUnknownCommand, ctrlBuf[12]&0xF)
+	command := ctrlBuf[12] & 0xF
+	if command > 1 {
+		return nil, fmt.Errorf("%w %d", ErrUnknownCommand, command)
 	}
 
-	if ctrlBuf[12]&0xF == 1 && ((protocol == utils.TCP && ctrlBuf[13] != 0x11 && ctrlBuf[13] != 0x21) ||
-		(protocol == utils.UDP && ctrlBuf[13] != 0x12 && ctrlBuf[13] != 0x22)) {
-		return nil, fmt.Errorf("%w %d/%d", ErrInvalidFamilyProtocol, ctrlBuf[13]>>4, ctrlBuf[13]&0xF)
+	addressFamily := ctrlBuf[13] >> 4
+	protocol := ctrlBuf[13] & 0xF
+
+	if command == commandProxy {
+		if addressFamily != addressFamilyInet && addressFamily != addressFamilyInet6 {
+			return nil, fmt.Errorf("%w %d", ErrInvalidFamily, addressFamily)
+		}
+		if (expectedProtocol == utils.TCP && protocol != protocolStream) ||
+			(expectedProtocol == utils.UDP && protocol != protocolDgram) {
+			return nil, fmt.Errorf("%w %d", ErrInvalidProtocol, protocol)
+		}
 	}
 
 	var dataLen uint16
@@ -72,14 +95,14 @@ func readRemoteAddrPROXYv2(ctrlBuf []byte, protocol utils.Protocol) (*proxyHeade
 		return nil, ErrIncompleteProxyHeader
 	}
 
-	if ctrlBuf[12]&0xF == 0 { // LOCAL
+	if command == commandLocal {
 		return &proxyHeader{
 			TrailingData: ctrlBuf[16+dataLen:],
 		}, nil
 	}
 
 	var sport, dport uint16
-	if ctrlBuf[13]>>4 == 0x1 { // IPv4
+	if addressFamily == addressFamilyInet {
 		reader = bytes.NewReader(ctrlBuf[24:])
 	} else {
 		reader = bytes.NewReader(ctrlBuf[48:])
@@ -98,7 +121,7 @@ func readRemoteAddrPROXYv2(ctrlBuf []byte, protocol utils.Protocol) (*proxyHeade
 	}
 
 	var srcIP, dstIP netip.Addr
-	if ctrlBuf[13]>>4 == 0x1 { // IPv4
+	if addressFamily == addressFamilyInet {
 		srcIP, _ = netip.AddrFromSlice(ctrlBuf[16:20])
 		dstIP, _ = netip.AddrFromSlice(ctrlBuf[20:24])
 	} else {

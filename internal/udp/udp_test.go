@@ -29,6 +29,7 @@ func TestMain(m *testing.M) {
 	testutils.RunGoMmproxy(udpOpts())
 	os.Exit(m.Run())
 }
+
 func TestListenUDP(t *testing.T) {
 	opts := udpOpts()
 
@@ -61,7 +62,10 @@ func TestListenUDP_DynamicDestination(t *testing.T) {
 	receivedData4 := testutils.RunUdpTargetServer(t, proxyTargetAddr)
 
 	conn := testutils.ConnectToGoMmproxy(t, opts)
-	testutils.SendProxyV2Message(t, conn, opts, "192.168.0.1:56324", proxyTargetAddr.String(), "moredata")
+	testutils.SendProxyV2Message(
+		t, conn, opts,
+		"192.168.0.1:56324", proxyTargetAddr.String(), "moredata",
+	)
 
 	result := <-receivedData4
 

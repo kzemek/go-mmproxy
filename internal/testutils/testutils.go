@@ -6,6 +6,7 @@ package testutils
 
 import (
 	"context"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
@@ -43,8 +44,12 @@ func ConnectToGoMmproxy(t *testing.T, opts *utils.Options) net.Conn {
 	return conn
 }
 
-func SendProxyV1Message(t *testing.T, conn net.Conn, opts *utils.Options,
-	proxiedClientAddr string, proxiedServerAddr string, message string) {
+func SendProxyV1Message(
+	t *testing.T,
+	conn net.Conn,
+	opts *utils.Options,
+	proxiedClientAddr, proxiedServerAddr, message string,
+) {
 	t.Helper()
 
 	proxiedClientAddrPort := netip.MustParseAddrPort(proxiedClientAddr)
@@ -58,14 +63,17 @@ func SendProxyV1Message(t *testing.T, conn net.Conn, opts *utils.Options,
 	_, err := fmt.Fprintf(conn, "PROXY %s %s %s %d %d\r\n%s",
 		protocol, proxiedClientAddrPort.Addr().String(), proxiedServerAddrPort.Addr().String(),
 		proxiedClientAddrPort.Port(), proxiedServerAddrPort.Port(), message)
-
 	if err != nil {
 		t.Fatalf("Failed to send proxy message: %v", err)
 	}
 }
 
-func SendProxyV2Message(t *testing.T, conn net.Conn, opts *utils.Options,
-	proxiedClientAddr string, proxiedServerAddr string, message string) {
+func SendProxyV2Message(
+	t *testing.T,
+	conn net.Conn,
+	opts *utils.Options,
+	proxiedClientAddr, proxiedServerAddr, message string,
+) {
 	t.Helper()
 
 	proxiedClientAddrPort := netip.MustParseAddrPort(proxiedClientAddr)
@@ -84,8 +92,8 @@ func SendProxyV2Message(t *testing.T, conn net.Conn, opts *utils.Options,
 	buf = append(buf, 0x00, 0x0C) // 12 bytes
 	buf = append(buf, proxiedClientAddrBytes[:]...)
 	buf = append(buf, proxiedServerAddrBytes[:]...)
-	buf = append(buf, byte(proxiedClientAddrPort.Port()>>8), byte(proxiedClientAddrPort.Port()&0xFF))
-	buf = append(buf, byte(proxiedServerAddrPort.Port()>>8), byte(proxiedServerAddrPort.Port()&0xFF))
+	buf = binary.BigEndian.AppendUint16(buf, proxiedClientAddrPort.Port())
+	buf = binary.BigEndian.AppendUint16(buf, proxiedServerAddrPort.Port())
 	buf = append(buf, []byte(message)...)
 
 	_, err := conn.Write(buf)

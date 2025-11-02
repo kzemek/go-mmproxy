@@ -16,31 +16,33 @@ import (
 	"github.com/kzemek/go-mmproxy/internal/utils"
 )
 
-// Proxy Protocol V2 errors
-var ErrUnknownProcotolVersion = errors.New("unknown protocol version")
-var ErrUnknownCommand = errors.New("unknown command")
-var ErrInvalidFamily = errors.New("invalid family")
-var ErrInvalidProtocol = errors.New("invalid protocol")
-var ErrDecodeAddressDataLength = errors.New("failed to decode address data length")
-var ErrIncompleteProxyHeader = errors.New("incomplete PROXY header")
-var ErrDecodeSourcePort = errors.New("failed to decode source port")
-var ErrDecodeDestinationPort = errors.New("failed to decode destination port")
+var (
+	// Proxy Protocol V2 errors
+	ErrUnknownProcotolVersion  = errors.New("unknown protocol version")
+	ErrUnknownCommand          = errors.New("unknown command")
+	ErrInvalidFamily           = errors.New("invalid family")
+	ErrInvalidProtocol         = errors.New("invalid protocol")
+	ErrDecodeAddressDataLength = errors.New("failed to decode address data length")
+	ErrIncompleteProxyHeader   = errors.New("incomplete PROXY header")
+	ErrDecodeSourcePort        = errors.New("failed to decode source port")
+	ErrDecodeDestinationPort   = errors.New("failed to decode destination port")
 
-// Proxy Protocol V1 errors
-var ErrNoTerminator = errors.New("did not find \\r\\n in first data segment")
-var ErrInvalidFormat = errors.New("failed to decode elements")
-var ErrUnknownProtocol = errors.New("unknown protocol")
-var ErrParseSourceAddress = errors.New("failed to parse source address")
-var ErrParseDestinationAddress = errors.New("failed to parse destination address")
+	// Proxy Protocol V1 errors
+	ErrNoTerminator            = errors.New("did not find \\r\\n in first data segment")
+	ErrInvalidFormat           = errors.New("failed to decode elements")
+	ErrUnknownProtocol         = errors.New("unknown protocol")
+	ErrParseSourceAddress      = errors.New("failed to parse source address")
+	ErrParseDestinationAddress = errors.New("failed to parse destination address")
 
-// Common errors
-var ErrInvalidSourcePort = errors.New("invalid source port")
-var ErrInvalidDestinationPort = errors.New("invalid destination port")
+	// Common errors
+	ErrInvalidSourcePort      = errors.New("invalid source port")
+	ErrInvalidDestinationPort = errors.New("invalid destination port")
 
-// Parent errors
-var ErrProxyProtocolV1 = errors.New("v1")
-var ErrProxyProtocolV2 = errors.New("v2")
-var ErrProxyProtocolMissing = errors.New("PROXY header missing")
+	// Parent errors
+	ErrProxyProtocolV1      = errors.New("v1")
+	ErrProxyProtocolV2      = errors.New("v2")
+	ErrProxyProtocolMissing = errors.New("PROXY header missing")
+)
 
 type proxyHeader struct {
 	SrcAddr      netip.AddrPort
@@ -162,7 +164,11 @@ func readRemoteAddrPROXYv1(ctrlBuf []byte) (*proxyHeader, error) {
 
 	var src, dst string
 	var sportInt, dportInt int
-	numItemsParsed, err = fmt.Sscanf(str, "PROXY %s %s %s %d %d", &headerProtocol, &src, &dst, &sportInt, &dportInt)
+	numItemsParsed, err = fmt.Sscanf(
+		str,
+		"PROXY %s %s %s %d %d",
+		&headerProtocol, &src, &dst, &sportInt, &dportInt,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrInvalidFormat, err)
 	}

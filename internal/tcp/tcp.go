@@ -18,7 +18,7 @@ import (
 	"github.com/kzemek/go-mmproxy/internal/utils"
 )
 
-func copyData(dst *net.TCPConn, src *net.TCPConn, ch chan<- error) {
+func copyData(dst, src *net.TCPConn, ch chan<- error) {
 	_, err := io.Copy(dst, src)
 	if err == nil {
 		ch <- dst.CloseWrite()
@@ -38,12 +38,14 @@ func handleConnection(frontendConn *net.TCPConn, config utils.Config) {
 	}
 }
 
-var errConnectionOriginNotAllowed = errors.New("connection origin not in allowed subnets")
-var errReadProxyHeader = errors.New("failed to read PROXY header")
-var errParseProxyHeader = errors.New("failed to parse PROXY header")
-var errEstablishBackendConnection = errors.New("failed to establish backend connection")
-var errWriteAllToBackend = errors.New("failed to write data to backend connection")
-var errConnectionBroken = errors.New("connection broken")
+var (
+	errConnectionOriginNotAllowed = errors.New("connection origin not in allowed subnets")
+	errReadProxyHeader            = errors.New("failed to read PROXY header")
+	errParseProxyHeader           = errors.New("failed to parse PROXY header")
+	errEstablishBackendConnection = errors.New("failed to establish backend connection")
+	errWriteAllToBackend          = errors.New("failed to write data to backend connection")
+	errConnectionBroken           = errors.New("connection broken")
+)
 
 func doHandleConnection(frontendConn *net.TCPConn, config utils.Config) (utils.Config, error) {
 	frontendRemoteAddr := netip.MustParseAddrPort(frontendConn.RemoteAddr().String())
@@ -75,7 +77,12 @@ func doHandleConnection(frontendConn *net.TCPConn, config utils.Config) (utils.C
 		return config, fmt.Errorf("%w: %w", errParseProxyHeader, err)
 	}
 
-	targetAddr := chooseTargetAddr(proxyHeader.SrcAddr, proxyHeader.DstAddr, frontendRemoteAddr, config)
+	targetAddr := chooseTargetAddr(
+		proxyHeader.SrcAddr,
+		proxyHeader.DstAddr,
+		frontendRemoteAddr,
+		config,
+	)
 
 	clientAddr := "UNKNOWN"
 	if proxyHeader.SrcAddr.IsValid() {
@@ -141,7 +148,10 @@ func doHandleConnection(frontendConn *net.TCPConn, config utils.Config) (utils.C
 	return config, nil
 }
 
-func chooseTargetAddr(proxyHeaderSrcAddr, proxyHeaderDstAddr, frontendRemoteAddr netip.AddrPort, config utils.Config) netip.AddrPort {
+func chooseTargetAddr(
+	proxyHeaderSrcAddr, proxyHeaderDstAddr, frontendRemoteAddr netip.AddrPort,
+	config utils.Config,
+) netip.AddrPort {
 	if proxyHeaderSrcAddr.IsValid() {
 		if config.Opts.DynamicDestination && proxyHeaderDstAddr.IsValid() {
 			return proxyHeaderDstAddr
@@ -159,11 +169,18 @@ func chooseTargetAddr(proxyHeaderSrcAddr, proxyHeaderDstAddr, frontendRemoteAddr
 	return config.Opts.TargetAddr6
 }
 
-func establishBackendConnection(proxyHeaderSrcAddr, targetAddr netip.AddrPort, config utils.Config) (*net.TCPConn, error) {
+func establishBackendConnection(
+	proxyHeaderSrcAddr, targetAddr netip.AddrPort,
+	config utils.Config,
+) (*net.TCPConn, error) {
 	dialer := net.Dialer{}
 	if proxyHeaderSrcAddr.IsValid() {
 		dialer.LocalAddr = net.TCPAddrFromAddrPort(proxyHeaderSrcAddr)
-		dialer.Control = utils.DialBackendControl(proxyHeaderSrcAddr.Port(), config.Opts.Protocol, config.Opts.Mark)
+		dialer.Control = utils.DialBackendControl(
+			proxyHeaderSrcAddr.Port(),
+			config.Opts.Protocol,
+			config.Opts.Mark,
+		)
 	}
 	backendConn, err := dialer.Dial("tcp", targetAddr.String())
 	if err != nil {
@@ -184,7 +201,11 @@ func writeAllToBackend(conn *net.TCPConn, data []byte) error {
 	return nil
 }
 
-func Listen(ctx context.Context, listenConfig *net.ListenConfig, config utils.Config) (*net.TCPListener, error) {
+func Listen(
+	ctx context.Context,
+	listenConfig *net.ListenConfig,
+	config utils.Config,
+) (*net.TCPListener, error) {
 	ln, err := listenConfig.Listen(ctx, "tcp", config.Opts.ListenAddr.String())
 	if err != nil {
 		return nil, fmt.Errorf("failed to bind listener: %w", err)

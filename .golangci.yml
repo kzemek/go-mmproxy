@@ -28,3 +28,15 @@ linters:
     wrapcheck:
       ignore-package-globs:
         - github.com/kzemek/go-mmproxy/*
+formatters:
+  enable:
+    - gofumpt
+    - goimports
+    - golines
+  settings:
+    gofumpt:
+      module-path: github.com/kzemek/go-mmproxy
+      extra-rules: true
+    goimports:
+      local-prefixes:
+        - github.com/kzemek/go-mmproxy

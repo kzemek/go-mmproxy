@@ -44,8 +44,10 @@ func listen(ctx context.Context, listenerNum int, config utils.Config) {
 
 			if config.Opts.Listeners > 1 {
 				if err := setsockopt.ReusePort(fd, true); err != nil {
-					config.Logger.Warn("failed to set SO_REUSEPORT - only one listener setup will succeed",
-						slog.String("error", err.Error()))
+					config.Logger.Warn(
+						"failed to set SO_REUSEPORT - only one listener setup will succeed",
+						slog.String("error", err.Error()),
+					)
 				}
 			}
 		})
@@ -126,21 +128,41 @@ func parseOptions() *utils.Options {
 
 	opts := &utils.Options{}
 
-	flag.StringVar(&protocolStr, "p", "tcp", "Protocol that will be proxied: tcp, udp")
-	flag.StringVar(&listenAddrStr, "l", "0.0.0.0:8443", "Address the proxy listens on")
-	flag.StringVar(&targetAddr4Str, "4", "127.0.0.1:443", "Address to which IPv4 traffic will be forwarded to")
-	flag.StringVar(&targetAddr6Str, "6", "[::1]:443", "Address to which IPv6 traffic will be forwarded to")
-	flag.BoolVar(&opts.DynamicDestination, "dynamic-destination", false, "Traffic will be forwarded to the destination specified in the PROXY protocol header")
-	flag.IntVar(&opts.Mark, "mark", 0, "The mark that will be set on outbound packets")
-	flag.IntVar(&opts.Verbose, "v", 0, `0 - no logging of individual connections
+	flag.StringVar(&protocolStr,
+		"p", "tcp",
+		"Protocol that will be proxied: tcp, udp")
+	flag.StringVar(&listenAddrStr,
+		"l", "0.0.0.0:8443",
+		"Address the proxy listens on")
+	flag.StringVar(&targetAddr4Str,
+		"4", "127.0.0.1:443",
+		"Address to which IPv4 traffic will be forwarded to")
+	flag.StringVar(&targetAddr6Str,
+		"6", "[::1]:443",
+		"Address to which IPv6 traffic will be forwarded to")
+	flag.BoolVar(&opts.DynamicDestination,
+		"dynamic-destination", false,
+		"Traffic will be forwarded to the destination specified in the PROXY protocol header")
+	flag.IntVar(&opts.Mark,
+		"mark", 0,
+		"The mark that will be set on outbound packets")
+	flag.IntVar(&opts.Verbose,
+		"v", 0,
+		`0 - no logging of individual connections
 1 - log errors occurring in individual connections
 2 - log all state changes of individual connections`)
-	flag.StringVar(&allowedSubnetsPath, "allowed-subnets", "",
+	flag.StringVar(&allowedSubnetsPath,
+		"allowed-subnets", "",
 		"Path to a file that contains allowed subnets of the proxy servers")
-	flag.IntVar(&opts.Listeners, "listeners", 1,
+	flag.IntVar(&opts.Listeners,
+		"listeners", 1,
 		"Number of listener sockets that will be opened for the listen address (Linux 3.9+)")
-	flag.IntVar(&udpCloseAfterInt, "close-after", 60, "Number of seconds after which UDP socket will be cleaned up on inactivity")
-	flag.BoolVar(&opts.ListenTransparent, "listen-transparent", false, "Set IP_TRANSPARENT on the listen ports")
+	flag.IntVar(&udpCloseAfterInt,
+		"close-after", 60,
+		"Number of seconds after which UDP socket will be cleaned up on inactivity")
+	flag.BoolVar(&opts.ListenTransparent,
+		"listen-transparent", false,
+		"Set IP_TRANSPARENT on the listen ports")
 
 	flag.Parse()
 

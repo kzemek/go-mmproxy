@@ -79,10 +79,12 @@ func (c *Config) LogDebugConn(msg string, vars ...any) {
 }
 
 // ParseHostPort errors
-var ErrParseHostPort = errors.New("failed to parse host and port")
-var ErrLookupIP = errors.New("failed to lookup IP addresses")
-var ErrNoIPAddressesFound = errors.New("no IP addresses found")
-var ErrFailedToParsePort = errors.New("failed to parse port")
+var (
+	ErrParseHostPort      = errors.New("failed to parse host and port")
+	ErrLookupIP           = errors.New("failed to lookup IP addresses")
+	ErrNoIPAddressesFound = errors.New("no IP addresses found")
+	ErrFailedToParsePort  = errors.New("failed to parse port")
+)
 
 func ParseHostPort(hostport string, ipVersion int) (netip.AddrPort, error) {
 	host, portStr, err := net.SplitHostPort(hostport)
@@ -115,7 +117,11 @@ func ParseHostPort(hostport string, ipVersion int) (netip.AddrPort, error) {
 	return netip.AddrPortFrom(filteredIPs[0], uint16(port)), nil
 }
 
-func DialBackendControl(sport uint16, protocol Protocol, mark int) func(string, string, syscall.RawConn) error {
+func DialBackendControl(
+	sport uint16,
+	protocol Protocol,
+	mark int,
+) func(string, string, syscall.RawConn) error {
 	return func(network, address string, c syscall.RawConn) error {
 		var syscallErr error
 		controlErr := c.Control(func(fd uintptr) {
@@ -129,7 +135,13 @@ func DialBackendControl(sport uint16, protocol Protocol, mark int) func(string, 
 	}
 }
 
-func doDialBackendControl(fd uintptr, protocol Protocol, network string, sport uint16, mark int) error {
+func doDialBackendControl(
+	fd uintptr,
+	protocol Protocol,
+	network string,
+	sport uint16,
+	mark int,
+) error {
 	if protocol == TCP {
 		if err := setsockopt.TCPSynCnt(fd, 2); err != nil {
 			return err

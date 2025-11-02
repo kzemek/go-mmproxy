@@ -100,7 +100,10 @@ func TestListenTCP_DynamicDestination(t *testing.T) {
 	receivedData4 := testutils.RunTcpTargetServer(t, proxyTargetAddr)
 
 	conn := testutils.ConnectToGoMmproxy(t, opts)
-	testutils.SendProxyV1Message(t, conn, opts, "192.168.0.1:56324", proxyTargetAddr.String(), "moredata")
+	testutils.SendProxyV1Message(
+		t, conn, opts,
+		"192.168.0.1:56324", proxyTargetAddr.String(), "moredata",
+	)
 
 	result := <-receivedData4
 

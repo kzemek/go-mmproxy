@@ -28,7 +28,11 @@ type connectionInfo struct {
 	logger             *slog.Logger
 }
 
-func closeAfterInactivity(connInfo *connectionInfo, closeAfter time.Duration, socketClosures chan<- netip.AddrPort) {
+func closeAfterInactivity(
+	connInfo *connectionInfo,
+	closeAfter time.Duration,
+	socketClosures chan<- netip.AddrPort,
+) {
 	for {
 		lastActivity := atomic.LoadInt64(connInfo.lastActivity)
 		<-time.After(closeAfter)
@@ -91,16 +95,24 @@ func copyFromBackend(frontendConn net.PacketConn, connInfo *connectionInfo, conf
 	}
 }
 
-func getSocketFromMap(frontendConn net.PacketConn,
+func getSocketFromMap(
+	frontendConn net.PacketConn,
 	frontendRemoteAddr, proxyHeaderSrcAddr, proxyHeaderDstAddr netip.AddrPort,
-	connMap map[netip.AddrPort]*connectionInfo, socketClosures chan<- netip.AddrPort,
-	config utils.Config) (*connectionInfo, error) {
+	connMap map[netip.AddrPort]*connectionInfo,
+	socketClosures chan<- netip.AddrPort,
+	config utils.Config,
+) (*connectionInfo, error) {
 	if connInfo := connMap[proxyHeaderSrcAddr]; connInfo != nil {
 		atomic.AddInt64(connInfo.lastActivity, 1)
 		return connInfo, nil
 	}
 
-	targetAddr := chooseTargetAddr(proxyHeaderSrcAddr, proxyHeaderDstAddr, frontendRemoteAddr, config)
+	targetAddr := chooseTargetAddr(
+		proxyHeaderSrcAddr,
+		proxyHeaderDstAddr,
+		frontendRemoteAddr,
+		config,
+	)
 
 	config.Logger = config.Logger.With(
 		slog.String("frontendRemoteAddr", frontendRemoteAddr.String()),
@@ -110,7 +122,11 @@ func getSocketFromMap(frontendConn net.PacketConn,
 	if proxyHeaderSrcAddr.IsValid() {
 		config.Logger = config.Logger.With(slog.String("clientAddr", proxyHeaderSrcAddr.String()))
 		dialer.LocalAddr = net.UDPAddrFromAddrPort(proxyHeaderSrcAddr)
-		dialer.Control = utils.DialBackendControl(proxyHeaderSrcAddr.Port(), config.Opts.Protocol, config.Opts.Mark)
+		dialer.Control = utils.DialBackendControl(
+			proxyHeaderSrcAddr.Port(),
+			config.Opts.Protocol,
+			config.Opts.Mark,
+		)
 	}
 
 	config.LogDebugConn("new connection")
@@ -126,7 +142,8 @@ func getSocketFromMap(frontendConn net.PacketConn,
 		logger:             config.Logger,
 		lastActivity:       new(int64),
 		proxyHeaderSrcAddr: proxyHeaderSrcAddr,
-		frontendRemoteAddr: frontendRemoteAddr}
+		frontendRemoteAddr: frontendRemoteAddr,
+	}
 
 	go copyFromBackend(frontendConn, connInfo, config)
 	go closeAfterInactivity(connInfo, config.Opts.UDPCloseAfter, socketClosures)
@@ -135,7 +152,10 @@ func getSocketFromMap(frontendConn net.PacketConn,
 	return connInfo, nil
 }
 
-func chooseTargetAddr(proxyHeaderSrcAddr, proxyHeaderDstAddr, frontendRemoteAddr netip.AddrPort, config utils.Config) netip.AddrPort {
+func chooseTargetAddr(
+	proxyHeaderSrcAddr, proxyHeaderDstAddr, frontendRemoteAddr netip.AddrPort,
+	config utils.Config,
+) netip.AddrPort {
 	if proxyHeaderSrcAddr.IsValid() {
 		if config.Opts.DynamicDestination && proxyHeaderDstAddr.IsValid() {
 			return proxyHeaderDstAddr
@@ -153,7 +173,11 @@ func chooseTargetAddr(proxyHeaderSrcAddr, proxyHeaderDstAddr, frontendRemoteAddr
 	return config.Opts.TargetAddr6
 }
 
-func Listen(ctx context.Context, listenConfig *net.ListenConfig, config utils.Config) (*net.UDPConn, error) {
+func Listen(
+	ctx context.Context,
+	listenConfig *net.ListenConfig,
+	config utils.Config,
+) (*net.UDPConn, error) {
 	ln, err := listenConfig.ListenPacket(ctx, "udp", config.Opts.ListenAddr.String())
 	if err != nil {
 		return nil, fmt.Errorf("failed to bind listener: %w", err)

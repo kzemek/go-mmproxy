@@ -79,7 +79,10 @@ func copyFromBackend(frontendConn net.PacketConn, connInfo *connectionInfo, conf
 
 			atomic.AddInt64(connInfo.lastActivity, 1)
 
-			if _, serr := frontendConn.WriteTo(buf[:numBytesRead], net.UDPAddrFromAddrPort(connInfo.frontendRemoteAddr)); serr != nil {
+			if _, serr := frontendConn.WriteTo(
+				buf[:numBytesRead],
+				net.UDPAddrFromAddrPort(connInfo.frontendRemoteAddr),
+			); serr != nil {
 				syscallErr = serr
 				return true
 			}

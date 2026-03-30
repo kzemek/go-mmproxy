@@ -11,6 +11,8 @@ import (
 	"errors"
 	"fmt"
 	"net/netip"
+	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/kzemek/go-mmproxy/internal/utils"
@@ -18,14 +20,15 @@ import (
 
 var (
 	// Proxy Protocol V2 errors
-	ErrUnknownProcotolVersion  = errors.New("unknown protocol version")
-	ErrUnknownCommand          = errors.New("unknown command")
-	ErrInvalidFamily           = errors.New("invalid family")
-	ErrInvalidProtocol         = errors.New("invalid protocol")
-	ErrDecodeAddressDataLength = errors.New("failed to decode address data length")
-	ErrIncompleteProxyHeader   = errors.New("incomplete PROXY header")
-	ErrDecodeSourcePort        = errors.New("failed to decode source port")
-	ErrDecodeDestinationPort   = errors.New("failed to decode destination port")
+	ErrUnknownProcotolVersion   = errors.New("unknown protocol version")
+	ErrUnknownCommand           = errors.New("unknown command")
+	ErrInvalidFamily            = errors.New("invalid family")
+	ErrInvalidProtocol          = errors.New("invalid protocol")
+	ErrDecodeAddressDataLength  = errors.New("failed to decode address data length")
+	ErrInvalidAddressDataLength = errors.New("invalid address data length")
+	ErrIncompleteProxyHeader    = errors.New("incomplete PROXY header")
+	ErrDecodeSourcePort         = errors.New("failed to decode source port")
+	ErrDecodeDestinationPort    = errors.New("failed to decode destination port")
 
 	// Proxy Protocol V1 errors
 	ErrNoTerminator            = errors.New("did not find \\r\\n in first data segment")
@@ -33,6 +36,8 @@ var (
 	ErrUnknownProtocol         = errors.New("unknown protocol")
 	ErrParseSourceAddress      = errors.New("failed to parse source address")
 	ErrParseDestinationAddress = errors.New("failed to parse destination address")
+	ErrParseAddress            = errors.New("failed to parse address")
+	ErrProtocolAddrMismatch    = errors.New("protocol address mismatch")
 
 	// Common errors
 	ErrInvalidSourcePort      = errors.New("invalid source port")
@@ -96,6 +101,12 @@ func readRemoteAddrPROXYv2(ctrlBuf []byte, expectedProtocol utils.Protocol) (*pr
 	if len(ctrlBuf) < 16+int(dataLen) {
 		return nil, ErrIncompleteProxyHeader
 	}
+	if addressFamily == addressFamilyInet && dataLen < 12 {
+		return nil, fmt.Errorf("%w: %d", ErrInvalidAddressDataLength, dataLen)
+	}
+	if addressFamily == addressFamilyInet6 && dataLen < 36 {
+		return nil, fmt.Errorf("%w: %d", ErrInvalidAddressDataLength, dataLen)
+	}
 
 	if command == commandLocal {
 		return &proxyHeader{
@@ -103,12 +114,18 @@ func readRemoteAddrPROXYv2(ctrlBuf []byte, expectedProtocol utils.Protocol) (*pr
 		}, nil
 	}
 
-	var sport, dport uint16
+	var srcIP, dstIP netip.Addr
 	if addressFamily == addressFamilyInet {
+		srcIP, _ = netip.AddrFromSlice(ctrlBuf[16:20])
+		dstIP, _ = netip.AddrFromSlice(ctrlBuf[20:24])
 		reader = bytes.NewReader(ctrlBuf[24:])
 	} else {
+		srcIP, _ = netip.AddrFromSlice(ctrlBuf[16:32])
+		dstIP, _ = netip.AddrFromSlice(ctrlBuf[32:48])
 		reader = bytes.NewReader(ctrlBuf[48:])
 	}
+
+	var sport, dport uint16
 	if err := binary.Read(reader, binary.BigEndian, &sport); err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrDecodeSourcePort, err)
 	}
@@ -120,15 +137,6 @@ func readRemoteAddrPROXYv2(ctrlBuf []byte, expectedProtocol utils.Protocol) (*pr
 	}
 	if dport == 0 {
 		return nil, fmt.Errorf("%w %d", ErrInvalidDestinationPort, dport)
-	}
-
-	var srcIP, dstIP netip.Addr
-	if addressFamily == addressFamilyInet {
-		srcIP, _ = netip.AddrFromSlice(ctrlBuf[16:20])
-		dstIP, _ = netip.AddrFromSlice(ctrlBuf[20:24])
-	} else {
-		srcIP, _ = netip.AddrFromSlice(ctrlBuf[16:32])
-		dstIP, _ = netip.AddrFromSlice(ctrlBuf[32:48])
 	}
 
 	return &proxyHeader{
@@ -145,51 +153,37 @@ func readRemoteAddrPROXYv1(ctrlBuf []byte) (*proxyHeader, error) {
 		return nil, ErrNoTerminator
 	}
 
-	var headerProtocol string
-	numItemsParsed, err := fmt.Sscanf(str, "PROXY %s", &headerProtocol)
-	if err != nil {
-		return nil, fmt.Errorf("%w: %w", ErrInvalidFormat, err)
+	parts := strings.Split(str[:idx], " ")
+	if slices.Contains(parts, "") || len(parts) < 2 || len(parts) > 6 || parts[0] != "PROXY" {
+		return nil, fmt.Errorf("%w", ErrInvalidFormat)
 	}
-	if numItemsParsed != 1 {
-		return nil, ErrInvalidFormat
-	}
+
+	headerProtocol := parts[1]
 	if headerProtocol == "UNKNOWN" {
-		return &proxyHeader{
-			TrailingData: ctrlBuf[idx+2:],
-		}, nil
+		return &proxyHeader{TrailingData: ctrlBuf[idx+2:]}, nil
 	}
 	if headerProtocol != "TCP4" && headerProtocol != "TCP6" {
 		return nil, fmt.Errorf("%w %s", ErrUnknownProtocol, headerProtocol)
 	}
+	if len(parts) != 6 {
+		return nil, fmt.Errorf("%w", ErrInvalidFormat)
+	}
 
-	var src, dst string
-	var sportInt, dportInt int
-	numItemsParsed, err = fmt.Sscanf(
-		str,
-		"PROXY %s %s %s %d %d",
-		&headerProtocol, &src, &dst, &sportInt, &dportInt,
-	)
+	srcIP, err := parseAddress(parts[2], headerProtocol)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %w", ErrInvalidFormat, err)
+		return nil, fmt.Errorf("%w %s: %w", ErrParseSourceAddress, parts[2], err)
 	}
-	if numItemsParsed != 5 {
-		return nil, ErrInvalidFormat
+	dstIP, err := parseAddress(parts[3], headerProtocol)
+	if err != nil {
+		return nil, fmt.Errorf("%w %s: %w", ErrParseDestinationAddress, parts[3], err)
 	}
-	sport, ok := convertPort(sportInt)
+	sport, ok := convertPort(parts[4])
 	if !ok {
-		return nil, fmt.Errorf("%w %d", ErrInvalidSourcePort, sport)
+		return nil, fmt.Errorf("%w %s", ErrInvalidSourcePort, parts[4])
 	}
-	dport, ok := convertPort(dportInt)
+	dport, ok := convertPort(parts[5])
 	if !ok {
-		return nil, fmt.Errorf("%w %d", ErrInvalidDestinationPort, dport)
-	}
-	srcIP, err := netip.ParseAddr(src)
-	if err != nil {
-		return nil, fmt.Errorf("%w %s: %w", ErrParseSourceAddress, src, err)
-	}
-	dstIP, err := netip.ParseAddr(dst)
-	if err != nil {
-		return nil, fmt.Errorf("%w %s: %w", ErrParseDestinationAddress, dst, err)
+		return nil, fmt.Errorf("%w %s", ErrInvalidDestinationPort, parts[5])
 	}
 
 	return &proxyHeader{
@@ -222,8 +216,20 @@ func ReadRemoteAddr(buf []byte, protocol utils.Protocol) (*proxyHeader, error) {
 	return nil, ErrProxyProtocolMissing
 }
 
-func convertPort(port int) (uint16, bool) {
-	if port <= 0 || port > 65535 {
+func parseAddress(addrStr, protocol string) (netip.Addr, error) {
+	ipAddr, err := netip.ParseAddr(addrStr)
+	if err != nil {
+		return ipAddr, fmt.Errorf("%w: %w", ErrParseAddress, err)
+	}
+	if ipAddr.Is4() != (protocol == "TCP4") {
+		return ipAddr, ErrProtocolAddrMismatch
+	}
+	return ipAddr, nil
+}
+
+func convertPort(portStr string) (uint16, bool) {
+	port, err := strconv.ParseUint(portStr, 10, 16)
+	if err != nil || port <= 0 || port > 65535 {
 		return 0, false
 	}
 	return uint16(port), true

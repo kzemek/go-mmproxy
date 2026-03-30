@@ -60,12 +60,13 @@ func copyFromBackend(frontendConn net.PacketConn, connInfo *connectionInfo, conf
 
 	var syscallErr error
 
-	err = rawConn.Read(func(fd uintptr) bool {
+	err = rawConn.Read(func(fdUintptr uintptr) bool {
 		buf := config.BufferPool.Get()
 		defer config.BufferPool.Put(buf)
 
 		for {
-			numBytesRead, _, serr := syscall.Recvfrom(int(fd), buf, syscall.MSG_DONTWAIT)
+			fd := int(fdUintptr) // #nosec G115
+			numBytesRead, _, serr := syscall.Recvfrom(fd, buf, syscall.MSG_DONTWAIT)
 			if errors.Is(serr, syscall.EWOULDBLOCK) {
 				return false
 			}

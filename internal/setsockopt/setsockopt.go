@@ -23,64 +23,71 @@ var (
 // Parent error
 var ErrSetsockopt = errors.New("setsockopt")
 
-func TCPSynCnt(fd uintptr, value int) error {
-	err := syscall.SetsockoptInt(int(fd), syscall.IPPROTO_TCP, syscall.TCP_SYNCNT, value)
+func TCPSynCnt(fdUintptr uintptr, value int) error {
+	fd := int(fdUintptr) // #nosec G115
+	err := syscall.SetsockoptInt(fd, syscall.IPPROTO_TCP, syscall.TCP_SYNCNT, value)
 	if err != nil {
 		return fmt.Errorf("%w(%w, %d): %w", ErrSetsockopt, ErrTCPSynCnt, value, err)
 	}
 	return nil
 }
 
-func IPTransparent(fd uintptr, transparent bool) error {
+func IPTransparent(fdUintptr uintptr, transparent bool) error {
+	fd := int(fdUintptr) // #nosec G115
 	value := boolToInt(transparent)
-	err := syscall.SetsockoptInt(int(fd), syscall.IPPROTO_IP, syscall.IP_TRANSPARENT, value)
+	err := syscall.SetsockoptInt(fd, syscall.IPPROTO_IP, syscall.IP_TRANSPARENT, value)
 	if err != nil {
 		return fmt.Errorf("%w(%w, %d): %w", ErrSetsockopt, ErrIPTransparent, value, err)
 	}
 	return nil
 }
 
-func ReuseAddr(fd uintptr, reuseAddr bool) error {
+func ReuseAddr(fdUintptr uintptr, reuseAddr bool) error {
+	fd := int(fdUintptr) // #nosec G115
 	value := boolToInt(reuseAddr)
-	err := syscall.SetsockoptInt(int(fd), syscall.SOL_SOCKET, syscall.SO_REUSEADDR, value)
+	err := syscall.SetsockoptInt(fd, syscall.SOL_SOCKET, syscall.SO_REUSEADDR, value)
 	if err != nil {
 		return fmt.Errorf("%w(%w, %d): %w", ErrSetsockopt, ErrReuseAddr, value, err)
 	}
 	return nil
 }
 
-func ReusePort(fd uintptr, reusePort bool) error {
+func ReusePort(fdUintptr uintptr, reusePort bool) error {
+	fd := int(fdUintptr) // #nosec G115
 	value := boolToInt(reusePort)
 	soReusePort := 15
-	err := syscall.SetsockoptInt(int(fd), syscall.SOL_SOCKET, soReusePort, value)
+	err := syscall.SetsockoptInt(fd, syscall.SOL_SOCKET, soReusePort, value)
 	if err != nil {
 		return fmt.Errorf("%w(%w, %d): %w", ErrSetsockopt, ErrReusePort, value, err)
 	}
 	return nil
 }
 
-func IPBindAddressNoPort(fd uintptr, bindAddressNoPort bool) error {
+func IPBindAddressNoPort(fdUintptr uintptr, bindAddressNoPort bool) error {
+	fd := int(fdUintptr) // #nosec G115
 	value := boolToInt(bindAddressNoPort)
 	ipBindAddressNoPort := 24
-	err := syscall.SetsockoptInt(int(fd), syscall.IPPROTO_IP, ipBindAddressNoPort, value)
+	err := syscall.SetsockoptInt(fd, syscall.IPPROTO_IP, ipBindAddressNoPort, value)
 	if err != nil {
 		return fmt.Errorf("%w(%w, %d): %w", ErrSetsockopt, ErrIPBindAddressNoPort, value, err)
 	}
 	return nil
 }
 
-func SoMark(fd uintptr, mark int) error {
+func SoMark(fdUintptr uintptr, mark int) error {
+	fd := int(fdUintptr) // #nosec G115
 	value := mark
-	err := syscall.SetsockoptInt(int(fd), syscall.SOL_SOCKET, syscall.SO_MARK, value)
+	err := syscall.SetsockoptInt(fd, syscall.SOL_SOCKET, syscall.SO_MARK, value)
 	if err != nil {
 		return fmt.Errorf("%w(%w, %d): %w", ErrSetsockopt, ErrSoMark, value, err)
 	}
 	return nil
 }
 
-func IPv6V6Only(fd uintptr, v6Only bool) error {
+func IPv6V6Only(fdUintptr uintptr, v6Only bool) error {
+	fd := int(fdUintptr) // #nosec G115
 	value := boolToInt(v6Only)
-	err := syscall.SetsockoptInt(int(fd), syscall.IPPROTO_IPV6, syscall.IPV6_V6ONLY, value)
+	err := syscall.SetsockoptInt(fd, syscall.IPPROTO_IPV6, syscall.IPV6_V6ONLY, value)
 	if err != nil {
 		return fmt.Errorf("%w(%w, %d): %w", ErrSetsockopt, ErrIPv6V6Only, value, err)
 	}

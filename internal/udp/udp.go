@@ -168,9 +168,7 @@ func chooseTargetAddr(
 		if proxyHeaderSrcAddr.Addr().Is4() {
 			return config.Opts.TargetAddr4
 		}
-	}
-
-	if frontendRemoteAddr.Addr().Is4() {
+	} else if frontendRemoteAddr.Addr().Is4() {
 		return config.Opts.TargetAddr4
 	}
 

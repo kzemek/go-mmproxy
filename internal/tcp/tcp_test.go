@@ -5,6 +5,7 @@
 package tcp_test
 
 import (
+	"fmt"
 	"net"
 	"net/netip"
 	"os"
@@ -136,5 +137,33 @@ func TestListenTCP_HalfClose(t *testing.T) {
 	finalResponse := testutils.ReadData(t, conn)
 	if got, want := finalResponse, "response: "; got != want {
 		t.Errorf("finalResponse=%s, want=%s", got, want)
+	}
+}
+
+// A PROXY header carrying a v6 client address may arrive over a v4
+// frontend connection (e.g. a v4-only intermediate hop). The backend
+// target must then still be the v6 target - chooseTargetAddr used to
+// fall back to the frontend family and pick TargetAddr4.
+func TestListenTCP_proxyV6_onV4Frontend(t *testing.T) {
+	opts := tcpOpts()
+
+	receivedData6 := testutils.RunTcpTargetServer(t, opts.TargetAddr6)
+
+	conn := testutils.ConnectToGoMmproxy(t, opts)
+
+	_, err := fmt.Fprintf(conn,
+		"PROXY TCP6 2001:db8::1 2001:db8::2 56324 443\r\nmoredata")
+	if err != nil {
+		t.Fatalf("Failed to send proxy message: %v", err)
+	}
+
+	result := <-receivedData6
+
+	if got, want := result.Message, "moredata"; got != want {
+		t.Errorf("result.message=%s, want=%s", got, want)
+	}
+
+	if got, want := result.Saddr.Addr().String(), "2001:db8::1"; got != want {
+		t.Errorf("result.saddr=%s, want=%s", got, want)
 	}
 }

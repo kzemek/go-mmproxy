@@ -157,9 +157,11 @@ func chooseTargetAddr(
 			return proxyHeaderDstAddr
 		}
 
-		if proxyHeaderSrcAddr.Addr().Is4() {
+		if proxyHeaderSrcAddr.Addr().Unmap().Is4() {
 			return config.Opts.TargetAddr4
 		}
+
+		return config.Opts.TargetAddr6
 	}
 
 	if frontendRemoteAddr.Addr().Is4() {
@@ -175,7 +177,13 @@ func establishBackendConnection(
 ) (*net.TCPConn, error) {
 	dialer := net.Dialer{}
 	if proxyHeaderSrcAddr.IsValid() {
-		dialer.LocalAddr = net.TCPAddrFromAddrPort(proxyHeaderSrcAddr)
+		// unmap so a 4-in-6 PROXY source binds correctly for a v4 target
+		dialer.LocalAddr = net.TCPAddrFromAddrPort(
+			netip.AddrPortFrom(
+				proxyHeaderSrcAddr.Addr().Unmap(),
+				proxyHeaderSrcAddr.Port(),
+			),
+		)
 		dialer.Control = utils.DialBackendControl(
 			proxyHeaderSrcAddr.Port(),
 			config.Opts.Protocol,

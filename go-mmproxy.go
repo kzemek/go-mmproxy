@@ -157,9 +157,12 @@ func parseOptions() *utils.Options {
 	flag.IntVar(&opts.Listeners,
 		"listeners", 1,
 		"Number of listener sockets that will be opened for the listen address (Linux 3.9+)")
-	flag.IntVar(&udpCloseAfterInt,
-		"close-after", 60,
-		"Number of seconds after which UDP socket will be cleaned up on inactivity")
+	flag.IntVar(
+		&udpCloseAfterInt,
+		"close-after",
+		60,
+		"Number of seconds after which UDP socket will be cleaned up on inactivity (0 disables cleanup)",
+	)
 	flag.BoolVar(&opts.ListenTransparent,
 		"listen-transparent", false,
 		"Set IP_TRANSPARENT on the listen ports")

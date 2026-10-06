@@ -150,7 +150,9 @@ func getSocketFromMap(
 	}
 
 	go copyFromBackend(frontendConn, connInfo, config)
-	go closeAfterInactivity(connInfo, config.Opts.UDPCloseAfter, socketClosures)
+	if config.Opts.UDPCloseAfter > 0 {
+		go closeAfterInactivity(connInfo, config.Opts.UDPCloseAfter, socketClosures)
+	}
 
 	connMap[proxyHeaderSrcAddr] = connInfo
 	return connInfo, nil
@@ -199,6 +201,9 @@ func AcceptLoop(listener *net.UDPConn, config utils.Config) error {
 	for {
 		numBytesRead, frontendRemoteAddrNet, err := listener.ReadFrom(buffer)
 		if err != nil {
+			if errors.Is(err, net.ErrClosed) {
+				return nil
+			}
 			config.Logger.Error("failed to read from socket", slog.Any("error", err))
 			continue
 		}

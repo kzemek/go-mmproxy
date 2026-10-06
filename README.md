@@ -145,7 +145,7 @@ TPROXY works great together with the `-dynamic-destination` flag, which will dyn
 - `-listen-transparent` - If given, listen ports will be opened with `IP_TRANSPARENT` option.
   This is required for a [TPROXY setup](#routing-multiple-ports).
 
-- `-close-after <int>` – Number of seconds after which inactive UDP sockets will be cleaned up (default `60`).
+- `-close-after <int>` – Number of seconds after which inactive UDP sockets will be cleaned up (default `60`). `0` disables cleanup.
 
 - `-v <0|1|2>` – Verbosity setting (default: `0`).
 

@@ -8,6 +8,7 @@ package main
 import (
 	"bufio"
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"log/slog"
@@ -114,9 +115,17 @@ func loadAllowedSubnets(allowedSubnetsPath string) ([]netip.Prefix, error) {
 		}
 		allowedSubnets = append(allowedSubnets, ipNet)
 	}
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("failed to read allowed subnets file: %w", err)
+	}
+	if len(allowedSubnets) == 0 {
+		return nil, errNoAllowedSubnets
+	}
 
 	return allowedSubnets, nil
 }
+
+var errNoAllowedSubnets = errors.New("allowed subnets file contains no subnets")
 
 func parseOptions() *utils.Options {
 	var protocolStr string

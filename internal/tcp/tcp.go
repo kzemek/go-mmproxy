@@ -67,14 +67,9 @@ func doHandleConnection(frontendConn *net.TCPConn, config utils.Config) (utils.C
 		}
 	}()
 
-	numBytesRead, err := frontendConn.Read(buffer)
+	proxyHeader, err := readProxyHeader(frontendConn, buffer)
 	if err != nil {
-		return config, fmt.Errorf("%w: %w", errReadProxyHeader, err)
-	}
-
-	proxyHeader, err := proxyprotocol.ReadRemoteAddr(buffer[:numBytesRead], utils.TCP)
-	if err != nil {
-		return config, fmt.Errorf("%w: %w", errParseProxyHeader, err)
+		return config, err
 	}
 
 	targetAddr := chooseTargetAddr(
@@ -146,6 +141,30 @@ func doHandleConnection(frontendConn *net.TCPConn, config utils.Config) (utils.C
 	}
 
 	return config, nil
+}
+
+func readProxyHeader(conn *net.TCPConn, buffer []byte) (*proxyprotocol.Header, error) {
+	numBytesRead := 0
+	for {
+		if numBytesRead == len(buffer) {
+			return nil, fmt.Errorf("%w: %w",
+				errParseProxyHeader, proxyprotocol.ErrIncompleteProxyHeader)
+		}
+
+		numRead, err := conn.Read(buffer[numBytesRead:])
+		if err != nil {
+			return nil, fmt.Errorf("%w: %w", errReadProxyHeader, err)
+		}
+		numBytesRead += numRead
+
+		header, err := proxyprotocol.ReadRemoteAddr(buffer[:numBytesRead], utils.TCP)
+		switch {
+		case err == nil:
+			return header, nil
+		case !proxyprotocol.MightComplete(buffer[:numBytesRead], utils.TCP, err):
+			return nil, fmt.Errorf("%w: %w", errParseProxyHeader, err)
+		}
+	}
 }
 
 func chooseTargetAddr(

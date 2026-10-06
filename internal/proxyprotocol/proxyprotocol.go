@@ -49,7 +49,8 @@ var (
 	ErrProxyProtocolMissing = errors.New("PROXY header missing")
 )
 
-type proxyHeader struct {
+// Header is a parsed PROXY protocol header.
+type Header struct {
 	SrcAddr      netip.AddrPort
 	DstAddr      netip.AddrPort
 	TrailingData []byte
@@ -57,6 +58,8 @@ type proxyHeader struct {
 
 // PROXY Protocol V2 constants
 const (
+	proxyV2Signature = "\x0D\x0A\x0D\x0A\x00\x0D\x0A\x51\x55\x49\x54\x0A"
+
 	commandLocal = 0
 	commandProxy = 1
 
@@ -68,7 +71,7 @@ const (
 )
 
 //gocyclo:ignore
-func readRemoteAddrPROXYv2(ctrlBuf []byte, expectedProtocol utils.Protocol) (*proxyHeader, error) {
+func readRemoteAddrPROXYv2(ctrlBuf []byte, expectedProtocol utils.Protocol) (*Header, error) {
 	protocolVersion := (ctrlBuf[12] >> 4)
 	if protocolVersion != 2 {
 		return nil, fmt.Errorf("%w %d", ErrUnknownProcotolVersion, protocolVersion)
@@ -109,7 +112,7 @@ func readRemoteAddrPROXYv2(ctrlBuf []byte, expectedProtocol utils.Protocol) (*pr
 	}
 
 	if command == commandLocal {
-		return &proxyHeader{
+		return &Header{
 			TrailingData: ctrlBuf[16+dataLen:],
 		}, nil
 	}
@@ -139,14 +142,14 @@ func readRemoteAddrPROXYv2(ctrlBuf []byte, expectedProtocol utils.Protocol) (*pr
 		return nil, fmt.Errorf("%w %d", ErrInvalidDestinationPort, dport)
 	}
 
-	return &proxyHeader{
+	return &Header{
 		SrcAddr:      netip.AddrPortFrom(srcIP, sport),
 		DstAddr:      netip.AddrPortFrom(dstIP, dport),
 		TrailingData: ctrlBuf[16+dataLen:],
 	}, nil
 }
 
-func readRemoteAddrPROXYv1(ctrlBuf []byte) (*proxyHeader, error) {
+func readRemoteAddrPROXYv1(ctrlBuf []byte) (*Header, error) {
 	str := string(ctrlBuf)
 	idx := strings.Index(str, "\r\n")
 	if idx < 0 {
@@ -160,7 +163,7 @@ func readRemoteAddrPROXYv1(ctrlBuf []byte) (*proxyHeader, error) {
 
 	headerProtocol := parts[1]
 	if headerProtocol == "UNKNOWN" {
-		return &proxyHeader{TrailingData: ctrlBuf[idx+2:]}, nil
+		return &Header{TrailingData: ctrlBuf[idx+2:]}, nil
 	}
 	if headerProtocol != "TCP4" && headerProtocol != "TCP6" {
 		return nil, fmt.Errorf("%w %s", ErrUnknownProtocol, headerProtocol)
@@ -186,17 +189,15 @@ func readRemoteAddrPROXYv1(ctrlBuf []byte) (*proxyHeader, error) {
 		return nil, fmt.Errorf("%w %s", ErrInvalidDestinationPort, parts[5])
 	}
 
-	return &proxyHeader{
+	return &Header{
 		SrcAddr:      netip.AddrPortFrom(srcIP, sport),
 		DstAddr:      netip.AddrPortFrom(dstIP, dport),
 		TrailingData: ctrlBuf[idx+2:],
 	}, nil
 }
 
-func ReadRemoteAddr(buf []byte, protocol utils.Protocol) (*proxyHeader, error) {
-	proxyv2header := []byte{0x0D, 0x0A, 0x0D, 0x0A, 0x00, 0x0D, 0x0A, 0x51, 0x55, 0x49, 0x54, 0x0A}
-
-	if len(buf) >= 16 && bytes.Equal(buf[:12], proxyv2header) {
+func ReadRemoteAddr(buf []byte, protocol utils.Protocol) (*Header, error) {
+	if len(buf) >= 16 && bytes.Equal(buf[:12], []byte(proxyV2Signature)) {
 		result, err := readRemoteAddrPROXYv2(buf, protocol)
 		if err != nil {
 			return nil, fmt.Errorf("%w: %w", ErrProxyProtocolV2, err)
@@ -214,6 +215,28 @@ func ReadRemoteAddr(buf []byte, protocol utils.Protocol) (*proxyHeader, error) {
 	}
 
 	return nil, ErrProxyProtocolMissing
+}
+
+// MightComplete reports whether buf could be a strict prefix of a valid
+// PROXY header, i.e. whether the parse error could resolve into a success
+// once more bytes are appended. Stream readers use it to keep reading a
+// header that is split across segments.
+func MightComplete(buf []byte, protocol utils.Protocol, err error) bool {
+	if errors.Is(err, ErrIncompleteProxyHeader) || errors.Is(err, ErrNoTerminator) {
+		return true
+	}
+	if !errors.Is(err, ErrProxyProtocolMissing) {
+		return false
+	}
+
+	v2sig := []byte(proxyV2Signature)
+	if bytes.HasPrefix(v2sig, buf) || bytes.HasPrefix(buf, v2sig) {
+		return true
+	}
+
+	v1sig := []byte("PROXY")
+	return protocol == utils.TCP &&
+		(bytes.HasPrefix(v1sig, buf) || bytes.HasPrefix(buf, v1sig))
 }
 
 func parseAddress(addrStr, protocol string) (netip.Addr, error) {

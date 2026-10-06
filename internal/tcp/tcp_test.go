@@ -9,6 +9,7 @@ import (
 	"net/netip"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/kzemek/go-mmproxy/internal/testutils"
 	"github.com/kzemek/go-mmproxy/internal/utils"
@@ -136,5 +137,60 @@ func TestListenTCP_HalfClose(t *testing.T) {
 	finalResponse := testutils.ReadData(t, conn)
 	if got, want := finalResponse, "response: "; got != want {
 		t.Errorf("finalResponse=%s, want=%s", got, want)
+	}
+}
+
+// A PROXY header split across TCP segments must still be parsed - the
+// proxy used to expect the whole header in the first Read() and dropped
+// such connections.
+func TestListenTCP_splitProxyHeader(t *testing.T) {
+	opts := tcpOpts()
+
+	receivedData4 := testutils.RunTargetServer(t, opts)
+
+	conn := testutils.ConnectToGoMmproxy(t, opts)
+	if _, err := conn.Write([]byte("PROXY UNKNOWN\r")); err != nil {
+		t.Fatalf("Failed to send header part: %v", err)
+	}
+	// let the first segment arrive before sending the rest
+	time.Sleep(150 * time.Millisecond)
+	if _, err := conn.Write([]byte("\nmoredata")); err != nil {
+		t.Fatalf("Failed to send remaining data: %v", err)
+	}
+
+	result := <-receivedData4
+
+	if got, want := result.Message, "moredata"; got != want {
+		t.Errorf("result.message=%s, want=%s", got, want)
+	}
+}
+
+// Same as above but splitting inside the PROXY v2 signature. A LOCAL
+// command needs no source address, so the backend dial works without
+// IP_TRANSPARENT and the test runs unprivileged.
+func TestListenTCP_splitProxyV2Signature(t *testing.T) {
+	opts := tcpOpts()
+
+	receivedData4 := testutils.RunTargetServer(t, opts)
+
+	conn := testutils.ConnectToGoMmproxy(t, opts)
+	if _, err := conn.Write(
+		[]byte{0x0D, 0x0A, 0x0D, 0x0A, 0x00, 0x0D}); err != nil {
+		t.Fatalf("Failed to send header part: %v", err)
+	}
+	time.Sleep(150 * time.Millisecond)
+	if _, err := conn.Write(
+		[]byte{0x0A, 0x51, 0x55, 0x49, 0x54, 0x0A, 0x20, 0x00, 0x00, 0x00}); err != nil {
+		t.Fatalf("Failed to send header part: %v", err)
+	}
+	time.Sleep(150 * time.Millisecond)
+	if _, err := conn.Write([]byte("moredata")); err != nil {
+		t.Fatalf("Failed to send remaining data: %v", err)
+	}
+
+	result := <-receivedData4
+
+	if got, want := result.Message, "moredata"; got != want {
+		t.Errorf("result.message=%s, want=%s", got, want)
 	}
 }

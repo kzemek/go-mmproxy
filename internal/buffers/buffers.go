@@ -23,7 +23,8 @@ func New() BufferPool {
 	return &bufferPool{
 		pool: sync.Pool{
 			New: func() any {
-				slice := make([]byte, math.MaxUint16)
+				// 16-byte PROXY v2 preamble + maximal address data
+				slice := make([]byte, 16+math.MaxUint16)
 				return &slice
 			},
 		},

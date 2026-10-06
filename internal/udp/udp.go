@@ -58,44 +58,49 @@ func copyFromBackend(frontendConn net.PacketConn, connInfo *connectionInfo, conf
 		return
 	}
 
-	var syscallErr error
+	buf := config.BufferPool.Get()
+	defer config.BufferPool.Put(buf)
 
-	err = rawConn.Read(func(fdUintptr uintptr) bool {
-		buf := config.BufferPool.Get()
-		defer config.BufferPool.Put(buf)
+	for {
+		var recvErr error
 
-		for {
+		err = rawConn.Read(func(fdUintptr uintptr) bool {
 			fd := int(fdUintptr) // #nosec G115
-			numBytesRead, _, serr := syscall.Recvfrom(fd, buf, syscall.MSG_DONTWAIT)
-			if errors.Is(serr, syscall.EWOULDBLOCK) {
-				return false
-			}
-			if serr != nil {
-				syscallErr = serr
-				return true
-			}
-			if numBytesRead == 0 {
-				return true
-			}
+			for {
+				numBytesRead, _, serr := syscall.Recvfrom(fd, buf, syscall.MSG_DONTWAIT)
+				if errors.Is(serr, syscall.EWOULDBLOCK) {
+					return false
+				}
+				if serr != nil {
+					recvErr = serr
+					return true
+				}
 
-			atomic.AddInt64(connInfo.lastActivity, 1)
+				atomic.AddInt64(connInfo.lastActivity, 1)
 
-			if _, serr := frontendConn.WriteTo(
-				buf[:numBytesRead],
-				net.UDPAddrFromAddrPort(connInfo.frontendRemoteAddr),
-			); serr != nil {
-				syscallErr = serr
-				return true
+				if _, serr := frontendConn.WriteTo(
+					buf[:numBytesRead],
+					net.UDPAddrFromAddrPort(connInfo.frontendRemoteAddr),
+				); serr != nil {
+					connInfo.logger.Debug("failed to write backend response to frontend socket",
+						slog.Any("error", serr))
+				}
 			}
+		})
+		if err != nil {
+			if !errors.Is(err, net.ErrClosed) {
+				connInfo.logger.Debug("failed to read from backend", slog.Any("error", err))
+			}
+			return
 		}
-	})
 
-	if err == nil {
-		err = syscallErr
-	}
-
-	if err != nil {
-		connInfo.logger.Debug("failed to read from backend", slog.Any("error", err))
+		if recvErr != nil {
+			if errors.Is(recvErr, syscall.EBADF) || errors.Is(recvErr, net.ErrClosed) {
+				return
+			}
+			connInfo.logger.Debug("failed to receive from backend socket",
+				slog.Any("error", recvErr))
+		}
 	}
 }
 

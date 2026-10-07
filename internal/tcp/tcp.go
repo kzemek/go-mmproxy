@@ -13,6 +13,7 @@ import (
 	"log/slog"
 	"net"
 	"net/netip"
+	"time"
 
 	"github.com/kzemek/go-mmproxy/internal/proxyprotocol"
 	"github.com/kzemek/go-mmproxy/internal/utils"
@@ -214,12 +215,33 @@ func Listen(
 }
 
 func AcceptLoop(ln *net.TCPListener, config utils.Config) error {
-	for {
-		conn, err := ln.Accept()
-		if err != nil {
-			return fmt.Errorf("failed to accept new connection: %w", err)
-		}
+	return acceptLoop(ln.AcceptTCP, config)
+}
 
-		go handleConnection(conn.(*net.TCPConn), config)
+func acceptLoop(accept func() (*net.TCPConn, error), config utils.Config) error {
+	var retryDelay time.Duration
+	for {
+		conn, err := accept()
+		if err != nil {
+			if errors.Is(err, net.ErrClosed) {
+				return fmt.Errorf("failed to accept new connection: %w", err)
+			}
+			if retryDelay == 0 {
+				retryDelay = 5 * time.Millisecond
+			} else {
+				retryDelay *= 2
+				if retryDelay > time.Second {
+					retryDelay = time.Second
+				}
+			}
+			config.Logger.Error("failed to accept new connection, retrying",
+				slog.String("error", err.Error()),
+				slog.Duration("retryDelay", retryDelay))
+			time.Sleep(retryDelay)
+			continue
+		}
+		retryDelay = 0
+
+		go handleConnection(conn, config)
 	}
 }

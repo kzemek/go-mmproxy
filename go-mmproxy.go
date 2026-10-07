@@ -32,13 +32,21 @@ func listen(ctx context.Context, listenerNum int, config utils.Config) {
 		slog.String("protocol", config.Opts.Protocol.String()),
 		slog.String("listenAddr", config.Opts.ListenAddr.String()))
 
-	listenConfig := net.ListenConfig{}
-	listenConfig.Control = func(network, address string, c syscall.RawConn) error {
-		return c.Control(func(fd uintptr) {
+	listenConfig := net.ListenConfig{Control: listenControl(config)}
+
+	if err := doListen(ctx, &listenConfig, config); err != nil {
+		config.Logger.Error("listen error", slog.Any("error", err))
+	}
+}
+
+func listenControl(config utils.Config) func(network, address string, c syscall.RawConn) error {
+	return func(network, address string, c syscall.RawConn) error {
+		var controlErr error
+		err := c.Control(func(fd uintptr) {
 			if config.Opts.ListenTransparent {
 				if err := setsockopt.IPTransparent(fd, true); err != nil {
-					config.Logger.Warn("failed to set IP_TRANSPARENT on listen port",
-						slog.String("error", err.Error()))
+					controlErr = fmt.Errorf("failed to set IP_TRANSPARENT on listen port: %w", err)
+					return
 				}
 			}
 
@@ -51,10 +59,10 @@ func listen(ctx context.Context, listenerNum int, config utils.Config) {
 				}
 			}
 		})
-	}
-
-	if err := doListen(ctx, &listenConfig, config); err != nil {
-		config.Logger.Error("listen error", slog.Any("error", err))
+		if err != nil {
+			return fmt.Errorf("failed to control listen socket: %w", err)
+		}
+		return controlErr
 	}
 }
 

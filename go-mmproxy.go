@@ -11,6 +11,7 @@ import (
 	"flag"
 	"fmt"
 	"log/slog"
+	"math"
 	"net"
 	"net/netip"
 	"os"
@@ -118,6 +119,39 @@ func loadAllowedSubnets(allowedSubnetsPath string) ([]netip.Prefix, error) {
 	return allowedSubnets, nil
 }
 
+const (
+	// maxListeners bounds -listeners so a mistyped value cannot trigger a
+	// huge allocation in main; it is far above any realistic listener count.
+	maxListeners = 1024
+	// maxCloseAfterSeconds is the largest -close-after value that does not
+	// overflow time.Duration.
+	maxCloseAfterSeconds = math.MaxInt64 / int64(time.Second)
+)
+
+func parseUDPCloseAfter(seconds int) (time.Duration, bool) {
+	if seconds < 0 || int64(seconds) > maxCloseAfterSeconds {
+		return 0, false
+	}
+	return time.Duration(seconds) * time.Second, true
+}
+
+func validateFlagValues(opts *utils.Options) {
+	if opts.Mark < 0 || int64(opts.Mark) > math.MaxUint32 {
+		fmt.Fprintf(os.Stderr, "--mark has to be between 0 and %d", uint64(math.MaxUint32))
+		os.Exit(1)
+	}
+
+	if opts.Verbose < 0 || opts.Verbose > 2 {
+		fmt.Fprintf(os.Stderr, "-v has to be between 0 and 2")
+		os.Exit(1)
+	}
+
+	if opts.Listeners < 1 || opts.Listeners > maxListeners {
+		fmt.Fprintf(os.Stderr, "--listeners has to be between 1 and %d", maxListeners)
+		os.Exit(1)
+	}
+}
+
 func parseOptions() *utils.Options {
 	var protocolStr string
 	var listenAddrStr string
@@ -176,20 +210,7 @@ func parseOptions() *utils.Options {
 		os.Exit(1)
 	}
 
-	if opts.Mark < 0 {
-		fmt.Fprintf(os.Stderr, "--mark has to be >= 0")
-		os.Exit(1)
-	}
-
-	if opts.Verbose < 0 || opts.Verbose > 2 {
-		fmt.Fprintf(os.Stderr, "-v has to be between 0 and 2")
-		os.Exit(1)
-	}
-
-	if opts.Listeners < 1 {
-		fmt.Fprintf(os.Stderr, "--listeners has to be >= 1")
-		os.Exit(1)
-	}
+	validateFlagValues(opts)
 
 	var err error
 	if opts.ListenAddr, err = utils.ParseHostPort(listenAddrStr, 0); err != nil {
@@ -215,11 +236,11 @@ func parseOptions() *utils.Options {
 		os.Exit(1)
 	}
 
-	if udpCloseAfterInt < 0 {
-		fmt.Fprintf(os.Stderr, "-close-after has to be >= 0")
+	var ok bool
+	if opts.UDPCloseAfter, ok = parseUDPCloseAfter(udpCloseAfterInt); !ok {
+		fmt.Fprintf(os.Stderr, "-close-after has to be between 0 and %d", maxCloseAfterSeconds)
 		os.Exit(1)
 	}
-	opts.UDPCloseAfter = time.Duration(udpCloseAfterInt) * time.Second
 
 	if allowedSubnetsPath != "" {
 		opts.AllowedSubnets, err = loadAllowedSubnets(allowedSubnetsPath)

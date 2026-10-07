@@ -6,6 +6,7 @@ After=network.target
 Type=simple
 LimitNOFILE=65535
 CapabilityBoundingSet=CAP_NET_BIND_SERVICE CAP_NET_ADMIN
+AmbientCapabilities=CAP_NET_BIND_SERVICE CAP_NET_ADMIN
 ExecStartPost=+/sbin/ip rule add from 127.0.0.1/8 iif lo table 123
 ExecStartPost=+/sbin/ip route add local 0.0.0.0/0 dev lo table 123
 ExecStartPost=+/sbin/ip -6 rule add from ::1/128 iif lo table 123
